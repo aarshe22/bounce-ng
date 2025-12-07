@@ -21,11 +21,11 @@ define('APP_SECRET', $_ENV['APP_SECRET'] ?? 'change-this-secret');
 // OAuth configuration
 define('GOOGLE_CLIENT_ID', $_ENV['GOOGLE_CLIENT_ID'] ?? '');
 define('GOOGLE_CLIENT_SECRET', $_ENV['GOOGLE_CLIENT_SECRET'] ?? '');
-define('GOOGLE_REDIRECT_URI', $_ENV['GOOGLE_REDIRECT_URI'] ?? APP_URL . '/auth/google/callback');
+define('GOOGLE_REDIRECT_URI', $_ENV['GOOGLE_REDIRECT_URI'] ?? APP_URL . '/oauth-callback.php?provider=google');
 
 define('MICROSOFT_CLIENT_ID', $_ENV['MICROSOFT_CLIENT_ID'] ?? '');
 define('MICROSOFT_CLIENT_SECRET', $_ENV['MICROSOFT_CLIENT_SECRET'] ?? '');
-define('MICROSOFT_REDIRECT_URI', $_ENV['MICROSOFT_REDIRECT_URI'] ?? APP_URL . '/auth/microsoft/callback');
+define('MICROSOFT_REDIRECT_URI', $_ENV['MICROSOFT_REDIRECT_URI'] ?? APP_URL . '/oauth-callback.php?provider=microsoft');
 
 // Test mode override (can still be in .env for convenience, but also stored in DB)
 define('TEST_MODE_OVERRIDE_EMAIL', $_ENV['TEST_MODE_OVERRIDE_EMAIL'] ?? '');
