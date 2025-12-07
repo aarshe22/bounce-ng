@@ -119,10 +119,9 @@ class MailboxMonitor {
             throw new Exception("IMAP connection failed: {$error}");
         }
         
-        // Select the inbox folder explicitly
-        $inboxPath = $connectionString . $inbox;
-        
-        // Try different folder name variations in case of case sensitivity or namespace issues
+        // Get the actual mailbox path from imap_list (more reliable than constructing it)
+        $allMailboxes = @imap_list($this->imapConnection, $connectionString, "*");
+        $actualMailboxPath = null;
         $folderVariations = [
             $inbox,
             strtoupper($inbox),
@@ -130,145 +129,107 @@ class MailboxMonitor {
             'INBOX' . ($inbox !== 'INBOX' ? '/' . $inbox : ''),
         ];
         
-        $selected = false;
-        $selectedPath = '';
-        
-        foreach ($folderVariations as $folderVar) {
-            $testPath = $connectionString . $folderVar;
-            $result = @imap_reopen($this->imapConnection, $testPath);
-            if ($result) {
-                $selected = true;
-                $selectedPath = $testPath;
-                $this->eventLogger->log('info', "Successfully selected folder: '{$folderVar}'", null, $this->mailbox['id']);
-                break;
+        // Find the actual mailbox path that matches our folder name
+        if ($allMailboxes) {
+            foreach ($allMailboxes as $mb) {
+                $folder = str_replace($connectionString, "", $mb);
+                $folderDecoded = imap_utf7_decode($folder);
+                foreach ($folderVariations as $var) {
+                    if (strcasecmp($folderDecoded, $var) === 0 || $folderDecoded === $var) {
+                        $actualMailboxPath = $mb; // Use the full mailbox path from imap_list
+                        $this->eventLogger->log('info', "Found matching folder: '{$folderDecoded}' -> '{$mb}'", null, $this->mailbox['id']);
+                        break 2;
+                    }
+                }
             }
         }
         
-        if (!$selected) {
+        if (!$actualMailboxPath) {
+            // List available folders for error message
+            $availableFolders = [];
+            if ($allMailboxes) {
+                foreach ($allMailboxes as $mb) {
+                    $folder = str_replace($connectionString, "", $mb);
+                    $folder = imap_utf7_decode($folder);
+                    $availableFolders[] = $folder;
+                }
+            }
+            $foldersList = implode(', ', $availableFolders);
+            $this->eventLogger->log('error', "Folder '{$inbox}' not found. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            throw new Exception("Folder '{$inbox}' not found. Available folders: {$foldersList}");
+        }
+        
+        // Select the folder using the actual mailbox path
+        $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
+        if (!$result) {
+            // Try imap_select
+            $result = @imap_select($this->imapConnection, $actualMailboxPath);
+        }
+        
+        if (!$result) {
             $error = imap_last_error();
-            // Try to get status to verify folder exists
-            $status = @imap_status($this->imapConnection, $inboxPath, SA_MESSAGES);
-            if (!$status) {
-                // List available mailboxes to help debug
-                $mailboxes = @imap_list($this->imapConnection, $connectionString, "*");
-                $availableFolders = [];
-                if ($mailboxes) {
-                    foreach ($mailboxes as $mb) {
-                        $folder = str_replace($connectionString, "", $mb);
-                        $availableFolders[] = $folder;
-                    }
-                }
-                $foldersList = implode(', ', $availableFolders);
-                $this->eventLogger->log('error', "Failed to select inbox folder '{$inbox}': {$error}. Available folders: {$foldersList}", null, $this->mailbox['id']);
-                throw new Exception("Failed to select inbox folder '{$inbox}': {$error}. Available folders: {$foldersList}");
-            }
-            // If status works but reopen doesn't, try to select it using imap_select
-            $selectResult = @imap_select($this->imapConnection, $inboxPath);
-            if ($selectResult) {
-                $selected = true;
-                $selectedPath = $inboxPath;
-                $this->eventLogger->log('info', "Successfully selected folder using imap_select: '{$inbox}'", null, $this->mailbox['id']);
-            } else {
-                // If status works but reopen doesn't, use the original path
-                $selectedPath = $inboxPath;
-                $this->eventLogger->log('warning', "imap_reopen and imap_select failed but folder exists. Using path: {$inboxPath}. Error: {$error}", null, $this->mailbox['id']);
-            }
+            $this->eventLogger->log('error', "Failed to select folder '{$actualMailboxPath}': {$error}", null, $this->mailbox['id']);
+            throw new Exception("Failed to select folder: {$error}");
         }
         
-        // Verify we're actually in the right folder by checking current mailbox
-        $checkboxes = @imap_list($this->imapConnection, $connectionString, "*");
-        $currentSelected = '';
-        if ($checkboxes) {
-            foreach ($checkboxes as $mb) {
-                $mbInfo = @imap_status($this->imapConnection, $mb, SA_MESSAGES);
-                if ($mbInfo) {
-                    // Check if this is the selected mailbox by trying to get message count
-                    $testCount = @imap_num_msg($this->imapConnection);
-                    if ($testCount >= 0) {
-                        $folderName = str_replace($connectionString, "", $mb);
-                        $currentSelected = $folderName;
-                        break;
-                    }
-                }
-            }
-        }
+        $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        if ($currentSelected && $currentSelected !== $inbox) {
-            $this->eventLogger->log('warning', "Currently selected folder '{$currentSelected}' does not match configured folder '{$inbox}'", null, $this->mailbox['id']);
-        }
-
-        // Get the currently selected mailbox name
-        $currentMailboxInfo = @imap_status($this->imapConnection, $selectedPath ?: $inboxPath, SA_ALL);
-        $currentMailboxName = 'unknown';
-        if ($currentMailboxInfo) {
-            // Extract folder name from the mailbox path
-            $currentMailboxName = str_replace($connectionString, "", $selectedPath ?: $inboxPath);
-        }
-        
-        // Verify we're in the right folder - get message count from the selected folder
-        // imap_num_msg() returns count for the currently selected mailbox
-        // First, make absolutely sure we're in the right folder
-        if ($selectedPath) {
-            $finalSelect = @imap_reopen($this->imapConnection, $selectedPath);
-            if (!$finalSelect) {
-                // Last attempt with imap_select
-                @imap_select($this->imapConnection, $selectedPath);
-            }
-        }
-        
-        // Get message count - use imap_num_msg which counts ALL messages regardless of read status
-        $messageCount = @imap_num_msg($this->imapConnection);
-        
-        // Double-check by getting status directly
-        if ($messageCount == 0) {
-            $directStatus = @imap_status($this->imapConnection, $selectedPath ?: $inboxPath, SA_MESSAGES);
-            if ($directStatus && isset($directStatus->messages)) {
-                $messageCount = $directStatus->messages;
-                $this->eventLogger->log('info', "Message count from direct imap_status: {$messageCount}", null, $this->mailbox['id']);
-            }
-        }
-        
-        // Also verify with imap_status for additional info (use selected path)
-        $statusPath = $selectedPath ?: $inboxPath;
-        $status = @imap_status($this->imapConnection, $statusPath, SA_MESSAGES | SA_UNSEEN);
-        $statusCount = 0;
+        // Get message count using imap_status with the actual mailbox path (most reliable)
+        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
+        $messageCount = 0;
         $unseenCount = 0;
+        
         if ($status) {
-            $statusCount = $status->messages ?? 0;
+            $messageCount = $status->messages ?? 0;
             $unseenCount = $status->unseen ?? 0;
-            if ($statusCount != $messageCount) {
-                $this->eventLogger->log('warning', "Message count mismatch: imap_num_msg={$messageCount}, imap_status={$statusCount}", null, $this->mailbox['id']);
+            $this->eventLogger->log('info', "Message count from imap_status for '{$actualMailboxPath}': {$messageCount} total, {$unseenCount} unseen", null, $this->mailbox['id']);
+        } else {
+            $error = imap_last_error();
+            $this->eventLogger->log('warning', "imap_status failed for '{$actualMailboxPath}': {$error}", null, $this->mailbox['id']);
+        }
+        
+        // If status says 0, try selecting the folder and using imap_num_msg
+        if ($messageCount == 0) {
+            // Force selection one more time
+            @imap_reopen($this->imapConnection, $actualMailboxPath);
+            @imap_select($this->imapConnection, $actualMailboxPath);
+            
+            $numMsgCount = @imap_num_msg($this->imapConnection);
+            if ($numMsgCount > 0) {
+                $messageCount = $numMsgCount;
+                $this->eventLogger->log('info', "Message count from imap_num_msg after selection: {$messageCount}", null, $this->mailbox['id']);
             }
-            // Use the status count if it's different (more reliable)
-            if ($statusCount > $messageCount) {
-                $messageCount = $statusCount;
+            
+            // Last resort: try imap_search
+            if ($messageCount == 0) {
+                $searchResult = @imap_search($this->imapConnection, 'ALL');
+                if ($searchResult && count($searchResult) > 0) {
+                    $messageCount = count($searchResult);
+                    $this->eventLogger->log('info', "Message count from imap_search('ALL'): {$messageCount}", null, $this->mailbox['id']);
+                }
             }
         }
         
         // Log detailed info for debugging
-        $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Selected path: '{$statusPath}', Current mailbox: '{$currentMailboxName}', imap_num_msg: {$messageCount}, imap_status messages: {$statusCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);
         
         if ($messageCount == 0) {
-            // Check if we can list messages another way
-            $searchResult = @imap_search($this->imapConnection, 'ALL');
-            if ($searchResult && count($searchResult) > 0) {
-                $searchCount = count($searchResult);
-                $this->eventLogger->log('warning', "imap_num_msg returned 0 but imap_search('ALL') found {$searchCount} messages. Using search count.", null, $this->mailbox['id']);
-                $messageCount = $searchCount;
-            } else {
-                // List all available folders to help debug
-                $allMailboxes = @imap_list($this->imapConnection, $connectionString, "*");
-                $availableFolders = [];
-                if ($allMailboxes) {
-                    foreach ($allMailboxes as $mb) {
-                        $folder = str_replace($connectionString, "", $mb);
-                        $folder = imap_utf7_decode($folder);
-                        $availableFolders[] = $folder;
+            // List all available folders and their message counts to help debug
+            $availableFolders = [];
+            if ($allMailboxes) {
+                foreach ($allMailboxes as $mb) {
+                    $folder = str_replace($connectionString, "", $mb);
+                    $folder = imap_utf7_decode($folder);
+                    // Get message count for this folder using status
+                    $folderStatus = @imap_status($this->imapConnection, $mb, SA_MESSAGES);
+                    $folderMsgCount = $folderStatus ? ($folderStatus->messages ?? 0) : 0;
+                    if ($folderMsgCount > 0 || $folder === $inbox) {
+                        $availableFolders[] = "{$folder} ({$folderMsgCount} msgs)";
                     }
                 }
-                $foldersList = implode(', ', $availableFolders);
-                $this->eventLogger->log('warning', "No messages found. Configured folder: '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
             }
+            $foldersList = implode(', ', $availableFolders);
+            $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
         }
         
         $this->eventLogger->log('info', "Processing {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
@@ -420,9 +381,28 @@ class MailboxMonitor {
         }
         $connectionString .= "}";
         
+        // Get the actual mailbox path for the destination folder
+        $allMailboxes = @imap_list($this->imapConnection, $connectionString, "*");
+        $destMailboxPath = null;
+        
+        if ($allMailboxes) {
+            foreach ($allMailboxes as $mb) {
+                $folderName = str_replace($connectionString, "", $mb);
+                $folderDecoded = imap_utf7_decode($folderName);
+                if (strcasecmp($folderDecoded, $folder) === 0 || $folderDecoded === $folder) {
+                    $destMailboxPath = $mb;
+                    break;
+                }
+            }
+        }
+        
+        if (!$destMailboxPath) {
+            // Fallback to constructed path
+            $destMailboxPath = $connectionString . $folder;
+        }
+        
         // Copy message to destination folder
-        $destMailbox = $connectionString . $folder;
-        $result = @imap_mail_copy($this->imapConnection, $messageNum, $destMailbox);
+        $result = @imap_mail_copy($this->imapConnection, $messageNum, $destMailboxPath);
         
         if ($result) {
             // Delete from source
@@ -445,4 +425,3 @@ class MailboxMonitor {
         $this->disconnect();
     }
 }
-
