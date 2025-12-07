@@ -492,7 +492,10 @@ class MailboxMonitor {
     }
 
     private function queueNotifications($bounceId, $ccAddresses) {
+        $this->eventLogger->log('debug', "queueNotifications called for bounce ID {$bounceId} with " . count($ccAddresses ?? []) . " CC addresses", null, $this->mailbox['id']);
+        
         if (empty($ccAddresses)) {
+            $this->eventLogger->log('info', "No CC addresses to queue notifications for bounce ID {$bounceId}", null, $this->mailbox['id']);
             return;
         }
 
@@ -501,11 +504,22 @@ class MailboxMonitor {
             VALUES (?, ?, 'pending')
         ");
 
+        $queuedCount = 0;
         foreach ($ccAddresses as $email) {
             if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $stmt->execute([$bounceId, $email]);
+                try {
+                    $stmt->execute([$bounceId, $email]);
+                    $queuedCount++;
+                    $this->eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                } catch (Exception $e) {
+                    $this->eventLogger->log('warning', "Failed to queue notification for {$email}: {$e->getMessage()}", null, $this->mailbox['id']);
+                }
+            } else {
+                $this->eventLogger->log('debug', "Skipping invalid email address: {$email}", null, $this->mailbox['id']);
             }
         }
+        
+        $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}", null, $this->mailbox['id']);
     }
 
     private function moveMessage($messageNum, $folder) {
@@ -566,8 +580,35 @@ class MailboxMonitor {
             $this->eventLogger->log('debug', "Using constructed path: '{$destMailboxPath}'", null, $this->mailbox['id']);
         }
         
-        // Copy message to destination folder
-        $result = @\imap_mail_copy($this->imapConnection, $messageNum, $destMailboxPath);
+        // Extract just the folder name from the full path (imap_mail_copy may need just the folder name)
+        $folderNameOnly = str_replace($connectionString, "", $destMailboxPath);
+        
+        // Try multiple approaches: full path, folder name only, and encoded folder name
+        $pathsToTry = [
+            $destMailboxPath,  // Full path from imap_list
+            $folderNameOnly,   // Just the folder name
+            $folder,           // Original folder name
+        ];
+        
+        $result = false;
+        $lastError = null;
+        
+        foreach ($pathsToTry as $pathToTry) {
+            $this->eventLogger->log('debug', "Attempting to copy message {$messageNum} to path: '{$pathToTry}'", null, $this->mailbox['id']);
+            
+            // Copy message to destination folder
+            $result = @\imap_mail_copy($this->imapConnection, $messageNum, $pathToTry);
+            
+            if ($result) {
+                $this->eventLogger->log('debug', "Successfully copied message {$messageNum} using path: '{$pathToTry}'", null, $this->mailbox['id']);
+                break;
+            } else {
+                $lastError = \imap_last_error();
+                $this->eventLogger->log('debug', "Failed to copy with path '{$pathToTry}': {$lastError}", null, $this->mailbox['id']);
+                // Clear error and try next path
+                \imap_errors();
+            }
+        }
         
         if ($result) {
             // Delete from source
@@ -576,8 +617,8 @@ class MailboxMonitor {
             @\imap_expunge($this->imapConnection);
             $this->eventLogger->log('debug', "Successfully moved message {$messageNum} to folder '{$folder}'", null, $this->mailbox['id']);
         } else {
-            $error = \imap_last_error();
-            $this->eventLogger->log('warning', "Failed to move message {$messageNum} to folder '{$folder}' (path: '{$destMailboxPath}'): {$error}", null, $this->mailbox['id']);
+            $error = $lastError ?: \imap_last_error() ?: 'Unknown error';
+            $this->eventLogger->log('warning', "Failed to move message {$messageNum} to folder '{$folder}'. Tried paths: " . implode(', ', $pathsToTry) . ". Error: {$error}", null, $this->mailbox['id']);
         }
     }
 
