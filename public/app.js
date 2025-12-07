@@ -1,5 +1,4 @@
 // Global state
-let logPaused = false;
 let currentMailboxId = null;
 let eventPollInterval = null;
 
@@ -12,6 +11,18 @@ document.addEventListener('DOMContentLoaded', function() {
     loadDashboard();
     loadEventLog();
     loadNotificationQueue();
+    
+    // Add click handler for refresh button
+    const refreshBtn = document.getElementById('refreshLogBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadEventLog);
+    }
+    
+    // Add change handler for event filter
+    const eventFilter = document.getElementById('eventFilter');
+    if (eventFilter) {
+        eventFilter.addEventListener('change', loadEventLog);
+    }
     
     // No auto-refresh for event log - user can manually refresh or it auto-refreshes during processing
     // Poll dashboard every 10 seconds
@@ -565,9 +576,7 @@ async function runProcessing() {
         }
         // Poll frequently during processing to see real-time progress
         eventPollInterval = setInterval(() => {
-            if (!logPaused) {
-                loadEventLog();
-            }
+            loadEventLog();
         }, 1000); // Poll every 1 second during processing
         
         // Process all mailboxes - TRUE fire-and-forget
@@ -841,41 +850,38 @@ function updateHeaderStats(stats) {
 
 // Event Log
 async function loadEventLog() {
+    const refreshBtn = document.getElementById('refreshLogBtn');
+    const originalHtml = refreshBtn ? refreshBtn.innerHTML : null;
+    
     try {
-        const refreshBtn = document.getElementById('refreshLogBtn');
         if (refreshBtn) {
             // Show loading state on refresh button
-            const originalHtml = refreshBtn.innerHTML;
             refreshBtn.disabled = true;
-            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="spinner-border spinner-border-sm"></span>';
-            
-            const filter = document.getElementById('eventFilter').value;
-            const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.success) {
-                displayEventLog(data.data);
-            }
-            
-            // Restore button state
-            refreshBtn.disabled = false;
-            refreshBtn.innerHTML = originalHtml;
+            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+        }
+        
+        const filter = document.getElementById('eventFilter').value;
+        const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            displayEventLog(data.data);
         } else {
-            // Fallback if button doesn't exist yet
-            const filter = document.getElementById('eventFilter').value;
-            const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.success) {
-                displayEventLog(data.data);
-            }
+            throw new Error(data.error || 'Failed to load events');
         }
     } catch (error) {
         console.error('Error loading events:', error);
-        const refreshBtn = document.getElementById('refreshLogBtn');
-        if (refreshBtn) {
+        // Still restore button even on error
+    } finally {
+        // Always restore button state, even if there was an error
+        if (refreshBtn && originalHtml) {
             refreshBtn.disabled = false;
-            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
+            refreshBtn.innerHTML = originalHtml;
         }
     }
 }
@@ -885,24 +891,39 @@ function displayEventLog(events) {
     container.innerHTML = '';
     
     // Display events in database ID order (newest first, as returned by ORDER BY id DESC)
-    // No timestamps - just show events as they were written to the database
+    // Show timestamps but sort by ID (not timestamp) to ensure consistent ordering
     events.forEach(event => {
         const item = document.createElement('div');
         item.className = `event ${event.severity}`;
-        // Only show ID - events are displayed in the order they were written (by ID)
+        
+        // Format timestamp if available
+        let timestampDisplay = '';
+        if (event.created_at) {
+            try {
+                const date = new Date(event.created_at);
+                // Format as: YYYY-MM-DD HH:MM:SS
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                timestampDisplay = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } catch (e) {
+                // If date parsing fails, use raw value
+                timestampDisplay = event.created_at;
+            }
+        }
+        
         const idDisplay = event.id ? `[ID:${event.id}]` : '';
-        item.innerHTML = `<span class="text-muted">${idDisplay}</span> <strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
+        const timestampPart = timestampDisplay ? `<span class="text-muted">${timestampDisplay}</span> ` : '';
+        item.innerHTML = `<span class="text-muted">${idDisplay}</span> ${timestampPart}<strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
         container.appendChild(item);
     });
 }
 
-function toggleLogPause() {
-    logPaused = !logPaused;
-    const btn = document.getElementById('pauseLogBtn');
-    btn.innerHTML = logPaused ? '<i class="bi bi-play"></i> Resume' : '<i class="bi bi-pause"></i> Pause';
-}
-
-document.getElementById('eventFilter').addEventListener('change', loadEventLog);
+// Removed toggleLogPause - no longer needed without auto-refresh
+// Event filter listener is set up in DOMContentLoaded
 
 // Notification Queue
 async function loadNotificationQueue() {
