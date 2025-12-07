@@ -58,13 +58,23 @@ class MailboxMonitor {
         }
 
         $folders = [];
+        // Build connection string for listing
         $server = $this->mailbox['imap_server'];
-        $mailboxes = @imap_list($this->imapConnection, "{{$server}}", "*");
+        $port = $this->mailbox['imap_port'];
+        $protocol = strtolower($this->mailbox['imap_protocol']);
+        
+        $connectionString = "{{$server}:{$port}";
+        if ($protocol === 'ssl' || $protocol === 'tls') {
+            $connectionString .= "/{$protocol}";
+        }
+        $connectionString .= "}";
+        
+        $mailboxes = @imap_list($this->imapConnection, $connectionString, "*");
         
         if ($mailboxes) {
             foreach ($mailboxes as $mailbox) {
                 // Extract folder name from full mailbox path
-                $folder = str_replace("{{$server}}", "", $mailbox);
+                $folder = str_replace($connectionString, "", $mailbox);
                 $folder = imap_utf7_decode($folder);
                 $folders[] = $folder;
             }
@@ -83,13 +93,30 @@ class MailboxMonitor {
         $problem = $this->mailbox['folder_problem'];
         $skipped = $this->mailbox['folder_skipped'];
 
-        // Select inbox
+        // Build connection string for folder selection
         $server = $this->mailbox['imap_server'];
-        @imap_reopen($this->imapConnection, "{{$server}}{$inbox}");
+        $port = $this->mailbox['imap_port'];
+        $protocol = strtolower($this->mailbox['imap_protocol']);
+        
+        $connectionString = "{{$server}:{$port}";
+        if ($protocol === 'ssl' || $protocol === 'tls') {
+            $connectionString .= "/{$protocol}";
+        }
+        $connectionString .= "}";
+        
+        // Select inbox folder
+        $inboxPath = $connectionString . $inbox;
+        $result = @imap_reopen($this->imapConnection, $inboxPath);
+        
+        if (!$result) {
+            $error = imap_last_error();
+            $this->eventLogger->log('error', "Failed to select inbox folder '{$inbox}': {$error}", null, $this->mailbox['id']);
+            throw new Exception("Failed to select inbox folder '{$inbox}': {$error}");
+        }
 
         // Get message count
         $messageCount = imap_num_msg($this->imapConnection);
-        $this->eventLogger->log('info', "Processing {$messageCount} messages from inbox", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "Processing {$messageCount} messages from inbox '{$inbox}'", null, $this->mailbox['id']);
 
         $processedCount = 0;
         $skippedCount = 0;
@@ -214,28 +241,30 @@ class MailboxMonitor {
     }
 
     private function moveMessage($messageNum, $folder) {
+        // Build connection string for folder
         $server = $this->mailbox['imap_server'];
-        $sourceFolder = $this->mailbox['folder_inbox'];
+        $port = $this->mailbox['imap_port'];
+        $protocol = strtolower($this->mailbox['imap_protocol']);
         
-        // Get current mailbox name
-        $currentMailbox = imap_getmailboxes($this->imapConnection, "{{$server}}", "*");
-        $currentMailboxName = '';
-        foreach ($currentMailbox as $mb) {
-            if (stripos($mb->name, $sourceFolder) !== false) {
-                $currentMailboxName = $mb->name;
-                break;
-            }
+        $connectionString = "{{$server}:{$port}";
+        if ($protocol === 'ssl' || $protocol === 'tls') {
+            $connectionString .= "/{$protocol}";
         }
+        $connectionString .= "}";
         
         // Copy message to destination folder
-        $destMailbox = "{{$server}}{$folder}";
-        imap_mail_copy($this->imapConnection, $messageNum, $destMailbox);
+        $destMailbox = $connectionString . $folder;
+        $result = @imap_mail_copy($this->imapConnection, $messageNum, $destMailbox);
         
-        // Delete from source
-        imap_delete($this->imapConnection, $messageNum);
-        
-        // Expunge
-        imap_expunge($this->imapConnection);
+        if ($result) {
+            // Delete from source
+            @imap_delete($this->imapConnection, $messageNum);
+            // Expunge
+            @imap_expunge($this->imapConnection);
+        } else {
+            $error = imap_last_error();
+            $this->eventLogger->log('warning', "Failed to move message to folder '{$folder}': {$error}", null, $this->mailbox['id']);
+        }
     }
 
     public function disconnect() {

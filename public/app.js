@@ -416,6 +416,15 @@ async function browseFolders(folderType) {
 
 async function saveMailbox() {
     const form = document.getElementById('mailboxForm');
+    // Remove required from password field if editing
+    const passwordField = document.getElementById('mailboxPassword');
+    const isEdit = document.getElementById('mailboxId').value;
+    if (isEdit) {
+        passwordField.removeAttribute('required');
+    } else {
+        passwordField.setAttribute('required', 'required');
+    }
+    
     if (!form.checkValidity()) {
         form.reportValidity();
         return;
@@ -429,7 +438,6 @@ async function saveMailbox() {
         imap_port: parseInt(document.getElementById('mailboxPort').value),
         imap_protocol: document.getElementById('mailboxProtocol').value,
         imap_username: document.getElementById('mailboxUsername').value,
-        imap_password: document.getElementById('mailboxPassword').value,
         folder_inbox: document.getElementById('mailboxInbox').value,
         folder_processed: document.getElementById('mailboxProcessed').value,
         folder_problem: document.getElementById('mailboxProblem').value,
@@ -437,6 +445,12 @@ async function saveMailbox() {
         relay_provider_id: document.getElementById('mailboxRelayProvider').value || null,
         is_enabled: document.getElementById('mailboxEnabled').checked ? 1 : 0
     };
+    
+    // Only include password if provided (for new mailboxes or when changing password)
+    const password = document.getElementById('mailboxPassword').value;
+    if (password) {
+        data.imap_password = password;
+    }
     
     try {
         const url = data.id ? '/api/mailboxes.php?action=update' : '/api/mailboxes.php?action=create';
@@ -656,7 +670,11 @@ function displayNotificationQueue(notifications) {
                     `).join('')}
                 </tbody>
             </table>
-            <button class="btn btn-primary btn-sm" onclick="sendSelectedNotifications()">Send Selected</button>
+            <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-secondary btn-sm" onclick="selectAllNotifications()">Select All</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="deselectAllNotifications()">Deselect All</button>
+                <button class="btn btn-primary btn-sm" onclick="sendSelectedNotifications()">Send Selected</button>
+            </div>
         </div>
     `;
     
@@ -664,6 +682,20 @@ function displayNotificationQueue(notifications) {
         document.querySelectorAll('.notification-checkbox').forEach(cb => {
             cb.checked = this.checked;
         });
+    });
+}
+
+function selectAllNotifications() {
+    document.getElementById('selectAllNotifications').checked = true;
+    document.querySelectorAll('.notification-checkbox').forEach(cb => {
+        cb.checked = true;
+    });
+}
+
+function deselectAllNotifications() {
+    document.getElementById('selectAllNotifications').checked = false;
+    document.querySelectorAll('.notification-checkbox').forEach(cb => {
+        cb.checked = false;
     });
 }
 
