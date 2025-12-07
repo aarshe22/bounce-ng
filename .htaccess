@@ -1,13 +1,23 @@
 RewriteEngine On
 RewriteBase /
 
+# Handle auth routes - map /auth/google to /auth/google.php (must come first)
+RewriteCond %{REQUEST_URI} ^/auth/([^/]+)$ [NC]
+RewriteCond %{DOCUMENT_ROOT}/auth/$1.php -f
+RewriteRule ^auth/([^/]+)$ /auth/$1.php [L]
+
+# Handle api routes - map /api/endpoint to /api/endpoint.php if file exists
+RewriteCond %{REQUEST_URI} ^/api/([^/]+)$ [NC]
+RewriteCond %{DOCUMENT_ROOT}/api/$1.php -f
+RewriteRule ^api/([^/]+)$ /api/$1.php [L]
+
 # Skip rewriting if the file or directory exists
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Skip rewriting for specific paths
-RewriteCond %{REQUEST_URI} ^/(auth|api|login\.php|logout\.php|public|init\.php) [NC]
+# Skip rewriting for specific file paths
+RewriteCond %{REQUEST_URI} ^/(login\.php|logout\.php|init\.php|public/) [NC]
 RewriteRule ^ - [L]
 
 # For all other requests, serve index.php (SPA)
