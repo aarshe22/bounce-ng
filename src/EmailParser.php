@@ -54,7 +54,24 @@ class EmailParser {
         foreach ($lines as $line) {
             // Check if this is a continuation line (starts with space or tab)
             if (($line[0] === ' ' || $line[0] === "\t") && $currentHeader !== null) {
-                $parsed[$currentHeader] .= ' ' . trim($line);
+                // Handle continuation line - check if current header value is an array
+                if (isset($parsed[$currentHeader])) {
+                    if (is_array($parsed[$currentHeader])) {
+                        // If it's an array, append to the last element
+                        $lastIndex = count($parsed[$currentHeader]) - 1;
+                        if ($lastIndex >= 0) {
+                            $parsed[$currentHeader][$lastIndex] .= ' ' . trim($line);
+                        } else {
+                            $parsed[$currentHeader][] = trim($line);
+                        }
+                    } else {
+                        // If it's a string, append to it
+                        $parsed[$currentHeader] .= ' ' . trim($line);
+                    }
+                } else {
+                    // Header doesn't exist yet, create it
+                    $parsed[$currentHeader] = trim($line);
+                }
                 continue;
             }
             
