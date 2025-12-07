@@ -281,7 +281,11 @@ class MailboxMonitor {
         error_log("MailboxMonitor: About to check if messageCount == 0. Type: " . gettype($messageCount) . ", Value: " . var_export($messageCount, true));
         
         // If still 0, try imap_search as backup - this is the most reliable method
-        if ($messageCount == 0) {
+        $isZero = ($messageCount == 0);
+        $this->eventLogger->log('debug', "Comparison result: messageCount == 0 is " . var_export($isZero, true), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: Comparison result: messageCount == 0 is " . var_export($isZero, true));
+        
+        if ($isZero) {
             $this->eventLogger->log('debug', "INSIDE if (messageCount == 0) block - messageCount is 0, trying fallback methods", null, $this->mailbox['id']);
             error_log("MailboxMonitor: INSIDE if (messageCount == 0) block");
             // Clear any previous errors
@@ -399,21 +403,26 @@ class MailboxMonitor {
                 }
             }
         } else {
-            $this->eventLogger->log('debug', "SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0");
+            $this->eventLogger->log('debug', "ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0");
         }
         
-        $this->eventLogger->log('debug', "Exited messageCount == 0 block. Final messageCount = {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: Exited messageCount == 0 block. Final messageCount = {$messageCount}");
+        $this->eventLogger->log('debug', "Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}");
         
         // Log detailed info for debugging
         $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);
         error_log("MailboxMonitor: DEBUG: Configured inbox folder: '{$inbox}', Final message count: {$messageCount}");
-        $this->eventLogger->log('debug', "About to check if messageCount == 0. Current value: {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: About to check if messageCount == 0. Current value: {$messageCount}");
+        $this->eventLogger->log('debug', "SECOND CHECK: About to check if messageCount == 0. Current value: {$messageCount}", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: SECOND CHECK: About to check if messageCount == 0. Current value: {$messageCount}");
         
-        if ($messageCount == 0) {
-            $this->eventLogger->log('debug', "messageCount is 0, returning early", null, $this->mailbox['id']);
+        $isZeroSecond = ($messageCount == 0);
+        $this->eventLogger->log('debug', "SECOND CHECK: Comparison result: messageCount == 0 is " . var_export($isZeroSecond, true), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: SECOND CHECK: Comparison result: messageCount == 0 is " . var_export($isZeroSecond, true));
+        
+        if ($isZeroSecond) {
+            $this->eventLogger->log('debug', "SECOND CHECK: messageCount is 0, returning early", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: SECOND CHECK: messageCount is 0, returning early");
             // List all available folders and their message counts to help debug
             $availableFolders = [];
             if ($allMailboxes) {
@@ -439,8 +448,8 @@ class MailboxMonitor {
             ];
         }
         
-        $this->eventLogger->log('debug', "messageCount is NOT 0 ({$messageCount}), proceeding past early return check", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: messageCount is NOT 0 ({$messageCount}), proceeding past early return check");
+        $this->eventLogger->log('debug', "SECOND CHECK: messageCount is NOT 0 ({$messageCount}), proceeding past early return check", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: SECOND CHECK: messageCount is NOT 0 ({$messageCount}), proceeding past early return check");
         $this->eventLogger->log('info', "messageCount is {$messageCount}, proceeding to process messages", null, $this->mailbox['id']);
         error_log("MailboxMonitor: messageCount is {$messageCount}, proceeding to process messages");
         $this->eventLogger->log('info', "Starting to process {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
