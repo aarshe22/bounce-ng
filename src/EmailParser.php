@@ -352,6 +352,51 @@ class EmailParser {
             'all_parts' => $allPartsSection
         ];
         
+        // Extract individual parts from ALL_PARTS section for more targeted searching
+        // Each part might be a separate embedded email or MIME section
+        if (!empty($allPartsSection)) {
+            // Split by common MIME boundaries and headers
+            $partDelimiters = [
+                '/Content-Type:\s*message\/rfc822/is',
+                '/Content-Type:\s*message\/rfc822-headers/is',
+                '/^From:\s*/im',
+                '/^Return-Path:\s*/im',
+                '/^X-Original-/im',
+            ];
+            
+            $parts = [$allPartsSection]; // Start with full section
+            foreach ($partDelimiters as $delimiter) {
+                $newParts = [];
+                foreach ($parts as $part) {
+                    $split = preg_split($delimiter, $part);
+                    if (count($split) > 1) {
+                        // Add delimiter back to each split part (except first)
+                        foreach ($split as $idx => $splitPart) {
+                            if ($idx > 0) {
+                                // Find the delimiter text and prepend it
+                                preg_match($delimiter, $part, $delimMatch, PREG_OFFSET_CAPTURE);
+                                if ($delimMatch) {
+                                    $splitPart = $delimMatch[0][0] . $splitPart;
+                                }
+                            }
+                            if (!empty(trim($splitPart))) {
+                                $newParts[] = $splitPart;
+                            }
+                        }
+                    } else {
+                        $newParts[] = $part;
+                    }
+                }
+                $parts = $newParts;
+            }
+            
+            // Add each individual part as a search target
+            foreach ($parts as $idx => $part) {
+                $searchTexts["all_parts_part_{$idx}"] = $part;
+                $searchTexts["all_parts_part_{$idx}_lower"] = strtolower($part);
+            }
+        }
+        
         // Method inspired by the example: split on "MIME-Version: 1.0" and search in fragments
         $fragments = explode("MIME-Version: 1.0", $this->rawEmail);
         if (count($fragments) > 1) {
@@ -516,6 +561,29 @@ class EmailParser {
                 $ccList = trim($matches[1]);
                 if (!empty($ccList)) {
                     $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // More aggressive: Look for any line that starts with "Cc:" or "CC:" anywhere in the text
+            // This catches CC addresses even if they're not in the expected format
+            if (preg_match_all('/^[Cc]{2}:\s*([^\r\n]+)/im', $text, $ccMatches, PREG_SET_ORDER)) {
+                foreach ($ccMatches as $ccMatch) {
+                    $ccList = trim($ccMatch[1]);
+                    if (!empty($ccList)) {
+                        $parsed = $this->parseEmailList($ccList);
+                        $ccAddresses = array_merge($ccAddresses, $parsed);
+                    }
+                }
+            }
+            
+            // Even more aggressive: Look for email addresses that appear after "To:" and before "Subject:" 
+            // This catches CC addresses in various formats
+            if (preg_match('/To:[^\r\n]*(?:\r?\n[^\r\n]*)*?\r?\n\s*([^\r\n]+)\r?\n\s*Subject:/is', $text, $matches)) {
+                $potentialCc = trim($matches[1]);
+                // Check if it looks like an email or contains emails
+                if (preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $potentialCc)) {
+                    $parsed = $this->parseEmailList($potentialCc);
                     $ccAddresses = array_merge($ccAddresses, $parsed);
                 }
             }

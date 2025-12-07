@@ -478,53 +478,51 @@ class MailboxMonitor {
                     continue;
                 }
                 
-                // Fetch all body parts using imap_fetchbody (like the example code)
-                $rawParts = [];
-                
-                // Part 0 = headers
+                // Fetch headers
                 $rawHeader = @\imap_fetchbody($this->imapConnection, $uid, '0', FT_UID);
-                // Check for both false and empty string - imap_fetchbody can return empty string if part doesn't exist
                 if ($rawHeader === false || $rawHeader === '') {
-                    // Fallback to imap_fetchheader
                     $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
                 }
                 
-                // Final check - if still empty/false after fallback, skip this message
                 if (!$rawHeader || $rawHeader === '') {
                     $this->eventLogger->log('warning', "Could not fetch header for message UID {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
-                $rawParts['0'] = $rawHeader;
-                
-                // Part 1 = first body part (often multipart/alternative)
-                $rawParts['1'] = @\imap_fetchbody($this->imapConnection, $uid, '1', FT_UID) ?: '';
-                $rawParts['1.1'] = @\imap_fetchbody($this->imapConnection, $uid, '1.1', FT_UID) ?: '';
-                $rawParts['1.2'] = @\imap_fetchbody($this->imapConnection, $uid, '1.2', FT_UID) ?: '';
-                
-                // Part 2 = message/rfc822 (attached original message - this is where CC usually is!)
-                $rawParts['2'] = @\imap_fetchbody($this->imapConnection, $uid, '2', FT_UID) ?: '';
-                $rawParts['2.0'] = @\imap_fetchbody($this->imapConnection, $uid, '2.0', FT_UID) ?: '';
-                $rawParts['2.1'] = @\imap_fetchbody($this->imapConnection, $uid, '2.1', FT_UID) ?: '';
-                $rawParts['2.2'] = @\imap_fetchbody($this->imapConnection, $uid, '2.2', FT_UID) ?: '';
-                $rawParts['2.3'] = @\imap_fetchbody($this->imapConnection, $uid, '2.3', FT_UID) ?: '';
+                // RECURSIVELY fetch ALL MIME parts from the structure
+                $rawParts = ['0' => $rawHeader];
+                $this->fetchAllMimeParts($this->imapConnection, $uid, $structure, $rawParts, '');
                 
                 // Also get full body as fallback
                 $fullBody = @\imap_body($this->imapConnection, $uid, FT_UID) ?: '';
+                if (!empty($fullBody)) {
+                    $rawParts['FULL_BODY'] = $fullBody;
+                }
                 
-                // Combine all parts for parsing - prioritize part 2 (message/rfc822) which contains original email
+                // Combine all parts - prioritize message/rfc822 parts which contain original email
                 $combinedBody = '';
-                if (!empty($rawParts['2'])) {
-                    // Part 2 is the embedded original message - this is where CC usually is!
-                    $combinedBody = $rawParts['2'];
+                $messageRfc822Parts = [];
+                $otherParts = [];
+                
+                foreach ($rawParts as $partNum => $partContent) {
+                    if ($partNum === '0' || $partNum === 'FULL_BODY') {
+                        continue; // Skip header and full body in this loop
+                    }
+                    // Check if this part is message/rfc822 (embedded email)
+                    if (strpos($partContent, 'Content-Type: message/rfc822') !== false || 
+                        strpos($partContent, 'Content-Type: message/rfc822-headers') !== false ||
+                        preg_match('/^From:/m', $partContent)) {
+                        $messageRfc822Parts[] = $partContent;
+                    } else {
+                        $otherParts[] = $partContent;
+                    }
+                }
+                
+                // Prioritize message/rfc822 parts (embedded emails) as they contain original headers
+                if (!empty($messageRfc822Parts)) {
+                    $combinedBody = implode("\r\n\r\n", $messageRfc822Parts);
                 } else {
-                    // Fallback to other parts
-                    $combinedBody = implode("\r\n\r\n", array_filter([
-                        $rawParts['1'] ?? '',
-                        $rawParts['1.1'] ?? '',
-                        $rawParts['1.2'] ?? '',
-                        $fullBody
-                    ]));
+                    $combinedBody = implode("\r\n\r\n", array_filter($otherParts));
                 }
                 
                 // Combine header with all body parts
@@ -708,6 +706,51 @@ class MailboxMonitor {
         }
         
         $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}" . ($skippedCount > 0 ? " ({$skippedCount} skipped)" : ""), null, $this->mailbox['id']);
+    }
+
+    /**
+     * Recursively fetch all MIME parts from a message structure
+     * This ensures we get ALL parts including deeply nested ones
+     */
+    private function fetchAllMimeParts($connection, $uid, $structure, &$parts, $prefix = '') {
+        if (!$structure) {
+            return;
+        }
+        
+        // If this structure has parts (multipart message)
+        if (isset($structure->parts) && is_array($structure->parts)) {
+            $partNum = 1;
+            foreach ($structure->parts as $part) {
+                $partIndex = $prefix ? ($prefix . '.' . $partNum) : (string)$partNum;
+                
+                // Fetch this part
+                $partBody = @\imap_fetchbody($connection, $uid, $partIndex, FT_UID);
+                if ($partBody !== false && $partBody !== '') {
+                    $parts[$partIndex] = $partBody;
+                }
+                
+                // If this part is itself multipart or message/rfc822, recurse
+                if (isset($part->parts) && is_array($part->parts) && count($part->parts) > 0) {
+                    // This is a multipart part - recurse into it
+                    $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex);
+                } elseif (isset($part->subtype) && strtolower($part->subtype) === 'rfc822') {
+                    // This is a message/rfc822 part - fetch its sub-parts too
+                    if (isset($part->parts) && is_array($part->parts)) {
+                        $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex);
+                    }
+                }
+                
+                $partNum++;
+            }
+        } else {
+            // Single part message - fetch it if we have a prefix
+            if ($prefix) {
+                $partBody = @\imap_fetchbody($connection, $uid, $prefix, FT_UID);
+                if ($partBody !== false && $partBody !== '') {
+                    $parts[$prefix] = $partBody;
+                }
+            }
+        }
     }
 
     private function moveMessage($messageNum, $folder, $useUid = false) {
