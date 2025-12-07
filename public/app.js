@@ -677,8 +677,8 @@ function addEventLogMessage(severity, message) {
     if (container) {
         const item = document.createElement('div');
         item.className = `event ${severity}`;
-        const time = new Date().toLocaleString();
-        item.innerHTML = `<span class="text-muted">[${time}]</span> <strong>${severity.toUpperCase()}</strong>: ${message}`;
+        // No timestamp - will be replaced by server data on next poll
+        item.innerHTML = `<span class="text-muted">[PENDING]</span> <strong>${severity.toUpperCase()}</strong>: ${message}`;
         container.insertBefore(item, container.firstChild);
         
         // Keep only last 100 items
@@ -889,33 +889,14 @@ function displayEventLog(events) {
     const container = document.getElementById('eventLog');
     container.innerHTML = '';
     
-    // Helper to format timestamp consistently
-    function formatTimestamp(timestamp) {
-        if (!timestamp) return 'N/A';
-        const date = new Date(timestamp);
-        // Check if date is valid
-        if (isNaN(date.getTime())) {
-            return timestamp; // Return raw value if invalid
-        }
-        // Format as: MM/DD/YYYY, HH:MM:SS AM/PM
-        return date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-        });
-    }
-    
+    // Display events in database ID order (newest first, as returned by ORDER BY id DESC)
+    // No timestamps - just show events as they were written to the database
     events.forEach(event => {
         const item = document.createElement('div');
         item.className = `event ${event.severity}`;
-        const time = formatTimestamp(event.created_at);
-        // Also include the ID for debugging
+        // Only show ID - events are displayed in the order they were written (by ID)
         const idDisplay = event.id ? `[ID:${event.id}]` : '';
-        item.innerHTML = `<span class="text-muted">[${time}] ${idDisplay}</span> <strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
+        item.innerHTML = `<span class="text-muted">${idDisplay}</span> <strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
         container.appendChild(item);
     });
 }

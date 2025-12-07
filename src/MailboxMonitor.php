@@ -283,34 +283,153 @@ class MailboxMonitor {
             }
         }
         
-        $this->eventLogger->log('debug', "After status check, messageCount = {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: After status check, messageCount = {$messageCount}");
-        $this->eventLogger->log('debug', "About to check if messageCount == 0. Type: " . gettype($messageCount) . ", Value: " . var_export($messageCount, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: About to check if messageCount == 0. Type: " . gettype($messageCount) . ", Value: " . var_export($messageCount, true));
+        $this->eventLogger->log('info', "Initial message count from status/num_msg: {$messageCount}", null, $this->mailbox['id']);
         
-        // If still 0, try imap_search as backup - this is the most reliable method
-        $isZero = ($messageCount == 0);
-        $this->eventLogger->log('debug', "Comparison result: messageCount == 0 is " . var_export($isZero, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: Comparison result: messageCount == 0 is " . var_export($isZero, true));
+        // ALWAYS use imap_search as the primary method - it's the most reliable
+        // Even if status/num_msg says 0, messages might still exist
+        // This is especially important for custom folders where status might be unreliable
+        $this->eventLogger->log('info', "Fetching message list using imap_search (most reliable method)...", null, $this->mailbox['id']);
         
-        $this->eventLogger->log('debug', "RIGHT BEFORE if statement. isZero = " . var_export($isZero, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: RIGHT BEFORE if statement. isZero = " . var_export($isZero, true));
+        $uids = false;
+        $usingUids = true;
         
-        // Force test - this should always execute
-        $this->eventLogger->log('debug', "TEST: About to evaluate if condition. messageCount={$messageCount}, isZero=" . var_export($isZero, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: TEST: About to evaluate if condition. messageCount={$messageCount}, isZero=" . var_export($isZero, true));
+        // Clear any previous IMAP errors
+        @\imap_errors();
         
-        // Test the condition directly
-        $conditionResult = (bool)$isZero;
-        $this->eventLogger->log('debug', "TEST: Condition evaluated to: " . var_export($conditionResult, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: TEST: Condition evaluated to: " . var_export($conditionResult, true));
+        // Try with SE_UID first (returns UIDs which are more stable)
+        $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+        $searchError = @\imap_last_error();
         
-        // CRITICAL: If messageCount > 0, skip the entire if block and go straight to processing
-        if ($messageCount > 0) {
-            $this->eventLogger->log('info', "BYPASS: messageCount > 0 ({$messageCount}), skipping fallback methods block", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: BYPASS: messageCount > 0 ({$messageCount}), skipping fallback methods block");
-            // Intentionally empty - just skip the fallback block
-        } elseif ($isZero) {
+        if ($uids && is_array($uids) && !empty($uids)) {
+            $messageCount = count($uids);
+            $usingUids = true;
+            $this->eventLogger->log('info', "✓ Found {$messageCount} messages using imap_search with SE_UID", null, $this->mailbox['id']);
+        } else {
+            $this->eventLogger->log('debug', "imap_search with SE_UID returned: " . var_export($uids, true) . ". Error: " . ($searchError ?: 'none'), null, $this->mailbox['id']);
+            
+            // Fallback: try without SE_UID flag (returns message numbers, not UIDs)
+            $uids = @\imap_search($this->imapConnection, 'ALL');
+            $searchError2 = @\imap_last_error();
+            
+            if ($uids && is_array($uids) && !empty($uids)) {
+                $messageCount = count($uids);
+                $usingUids = false; // These are message numbers, not UIDs
+                $this->eventLogger->log('info', "✓ Found {$messageCount} messages using imap_search (message numbers, not UIDs)", null, $this->mailbox['id']);
+            } else {
+                $this->eventLogger->log('warning', "imap_search without SE_UID also failed. Returned: " . var_export($uids, true) . ". Error: " . ($searchError2 ?: 'none'), null, $this->mailbox['id']);
+                
+                // Last resort: try sequential fetch to see if messages exist
+                // Some IMAP servers don't support search properly but messages exist
+                $this->eventLogger->log('info', "Trying sequential message fetch as last resort...", null, $this->mailbox['id']);
+                $foundMessages = 0;
+                
+                // Try fetching first 100 messages to see if any exist
+                for ($msgNum = 1; $msgNum <= 100; $msgNum++) {
+                    $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
+                    if ($testHeader && !empty(trim($testHeader))) {
+                        $foundMessages = $msgNum;
+                    } else {
+                        // If we found some messages but this one doesn't exist, we've found the count
+                        if ($foundMessages > 0) {
+                            $messageCount = $foundMessages;
+                            $uids = range(1, $foundMessages); // Create array of message numbers
+                            $usingUids = false;
+                            $this->eventLogger->log('info', "✓ Found {$messageCount} messages by sequential testing (stopped at message " . ($msgNum) . ")", null, $this->mailbox['id']);
+                            break;
+                        }
+                    }
+                }
+                
+                // If we found messages but didn't get exact count, try to find the end
+                if ($foundMessages > 0 && $messageCount == 0) {
+                    // Try to find upper bound by testing in larger increments
+                    $lastFound = $foundMessages;
+                    for ($test = $foundMessages + 100; $test <= 5000; $test += 100) {
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $test);
+                        if ($testHeader && !empty(trim($testHeader))) {
+                            $lastFound = $test;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    // Binary search between last found and test
+                    $low = $lastFound;
+                    $high = $test;
+                    while ($high - $low > 1) {
+                        $mid = intval(($low + $high) / 2);
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $mid);
+                        if ($testHeader && !empty(trim($testHeader))) {
+                            $low = $mid;
+                            $lastFound = $mid;
+                        } else {
+                            $high = $mid;
+                        }
+                    }
+                    
+                    $messageCount = $lastFound;
+                    $uids = range(1, $lastFound);
+                    $usingUids = false;
+                    $this->eventLogger->log('info', "✓ Found {$messageCount} messages by sequential/binary search", null, $this->mailbox['id']);
+                }
+            }
+        }
+        
+        // Log final message count
+        $this->eventLogger->log('info', "Final message count: {$messageCount} (using " . ($usingUids ? "UIDs" : "message numbers") . ")", null, $this->mailbox['id']);
+        
+        // If we still have 0 messages after all attempts, check folder status and return early
+        if ($messageCount == 0) {
+            $this->eventLogger->log('warning', "All message detection methods returned 0. Checking folder status...", null, $this->mailbox['id']);
+            
+            // List all available folders and their message counts to help debug
+            $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
+            $availableFolders = [];
+            $foldersWithMessages = [];
+            
+            if ($allMailboxes) {
+                foreach ($allMailboxes as $mb) {
+                    $folder = str_replace($connectionString, "", $mb);
+                    $folder = \imap_utf7_decode($folder);
+                    // Get message count for this folder using status
+                    $folderStatus = @\imap_status($this->imapConnection, $mb, SA_MESSAGES);
+                    $folderMsgCount = $folderStatus ? ($folderStatus->messages ?? 0) : 0;
+                    if ($folderMsgCount > 0 || $folder === $inbox) {
+                        $availableFolders[] = "{$folder} ({$folderMsgCount} msgs)";
+                    }
+                    if ($folderMsgCount > 0 && $folder !== $inbox) {
+                        $foldersWithMessages[] = $folder;
+                    }
+                }
+            }
+            
+            $foldersList = implode(', ', $availableFolders);
+            $this->eventLogger->log('warning', "No messages detected in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            
+            // Suggest folders with messages
+            if (!empty($foldersWithMessages)) {
+                $suggested = implode(', ', array_slice($foldersWithMessages, 0, 5));
+                $this->eventLogger->log('info', "TIP: To process messages, change the inbox folder to one with messages (e.g., {$suggested})", null, $this->mailbox['id']);
+            }
+            
+            // Return early if no messages found after all attempts
+            $this->eventLogger->log('warning', "No messages found in folder '{$inbox}' after all detection methods. Returning early.", null, $this->mailbox['id']);
+            return [
+                'processed' => 0,
+                'skipped' => 0,
+                'problems' => 0
+            ];
+        }
+        
+        // If we found messages via search but didn't get UIDs array, create it now
+        if ($messageCount > 0 && (!$uids || !is_array($uids) || empty($uids))) {
+            $this->eventLogger->log('warning', "Message count is {$messageCount} but UIDs array is empty. Creating UIDs array from message numbers...", null, $this->mailbox['id']);
+            $uids = range(1, $messageCount);
+            $usingUids = false;
+        }
+        
+        // Skip the old fallback block entirely - we've already done the search above
+        if (false) {
             $this->eventLogger->log('debug', "TEST: If condition was TRUE - entered if block", null, $this->mailbox['id']);
             error_log("MailboxMonitor: TEST: If condition was TRUE - entered if block");
             $this->eventLogger->log('debug', "ENTERED if block", null, $this->mailbox['id']);
