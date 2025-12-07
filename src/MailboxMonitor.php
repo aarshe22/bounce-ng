@@ -183,6 +183,11 @@ class MailboxMonitor {
             throw new Exception("IMAP connection is null before folder selection");
         }
         
+        // Check if IMAP functions are available
+        if (!function_exists('imap_select')) {
+            throw new Exception("IMAP extension not loaded - imap_select function not available");
+        }
+        
         // Check if connection is still alive
         $pingResult = @\imap_ping($this->imapConnection);
         if (!$pingResult) {
@@ -195,13 +200,23 @@ class MailboxMonitor {
         $result = false;
         $error = null;
         
-        try {
-            $result = @\imap_select($this->imapConnection, $actualMailboxPath);
-            $error = \imap_last_error();
-            $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
-        } catch (Exception $e) {
-            $error = $e->getMessage();
-            $this->eventLogger->log('error', "imap_select threw exception: {$error}", null, $this->mailbox['id']);
+        // Use call_user_func to ensure we're calling the global function
+        $imapSelectFunc = 'imap_select';
+        if (function_exists($imapSelectFunc)) {
+            try {
+                $result = @call_user_func($imapSelectFunc, $this->imapConnection, $actualMailboxPath);
+                $error = \imap_last_error();
+                $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
+            } catch (Exception $e) {
+                $error = $e->getMessage();
+                $this->eventLogger->log('error', "imap_select threw exception: {$error}", null, $this->mailbox['id']);
+            } catch (\Error $e) {
+                $error = $e->getMessage();
+                $this->eventLogger->log('error', "imap_select threw error: {$error}", null, $this->mailbox['id']);
+            }
+        } else {
+            $this->eventLogger->log('error', "imap_select function does not exist", null, $this->mailbox['id']);
+            throw new Exception("IMAP select function not available");
         }
         
         if (!$result) {
@@ -209,13 +224,19 @@ class MailboxMonitor {
                 $this->eventLogger->log('warning', "imap_select failed: {$error}, trying imap_reopen", null, $this->mailbox['id']);
             }
             // Fallback to imap_reopen
-            try {
-                $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
-                $error = \imap_last_error();
-                $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
-            } catch (Exception $e) {
-                $error = $e->getMessage();
-                $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
+            $imapReopenFunc = 'imap_reopen';
+            if (function_exists($imapReopenFunc)) {
+                try {
+                    $result = @call_user_func($imapReopenFunc, $this->imapConnection, $actualMailboxPath);
+                    $error = \imap_last_error();
+                    $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
+                } catch (Exception $e) {
+                    $error = $e->getMessage();
+                    $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
+                } catch (\Error $e) {
+                    $error = $e->getMessage();
+                    $this->eventLogger->log('error', "imap_reopen threw error: {$error}", null, $this->mailbox['id']);
+                }
             }
         }
         
