@@ -289,8 +289,8 @@ class MailboxMonitor {
         error_log("MailboxMonitor: RIGHT BEFORE if statement. isZero = " . var_export($isZero, true));
         
         if ($isZero) {
-            $this->eventLogger->log('debug', "ENTERED if block", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: ENTERED if block");
+                $this->eventLogger->log('debug', "ENTERED if block", null, $this->mailbox['id']);
+                error_log("MailboxMonitor: ENTERED if block");
             $this->eventLogger->log('debug', "INSIDE if (messageCount == 0) block - messageCount is 0, trying fallback methods", null, $this->mailbox['id']);
             error_log("MailboxMonitor: INSIDE if (messageCount == 0) block");
             // Clear any previous errors
