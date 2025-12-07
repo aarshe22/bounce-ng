@@ -458,28 +458,59 @@ class EmailParser {
         
         $this->parsedData['original_to'] = $originalTo;
         
-        // Extract CC addresses - use multiple methods including the example pattern
+        // AGGRESSIVE CC EXTRACTION - Search for CC addresses in ALL possible formats and locations
+        // This is critical for bounce emails where CC might be in embedded emails, attachments, or various formats
         $ccPatterns = [
-            // Standard patterns
+            // Standard header patterns (case variations)
             '/^CC:\s*([^\r\n]+)/im',
             '/^Cc:\s*([^\r\n]+)/im',
+            '/^cc:\s*([^\r\n]+)/im',
             '/\r\nCC:\s*([^\r\n]+)/i',
             '/\r\nCc:\s*([^\r\n]+)/i',
-            // In original message sections
+            '/\r\ncc:\s*([^\r\n]+)/i',
+            '/\nCC:\s*([^\n]+)/i',
+            '/\nCc:\s*([^\n]+)/i',
+            '/\ncc:\s*([^\n]+)/i',
+            
+            // In original message sections (various delimiters)
             '/-----Original Message-----[\s\S]*?^CC:\s*([^\r\n]+)/im',
             '/-----Begin Original Message-----[\s\S]*?^CC:\s*([^\r\n]+)/im',
+            '/-----Original Message-----[\s\S]*?^Cc:\s*([^\r\n]+)/im',
             '/^From:[\s\S]*?^CC:\s*([^\r\n]+)/im',
+            '/^From:[\s\S]*?^Cc:\s*([^\r\n]+)/im',
             '/^To:[\s\S]*?^CC:\s*([^\r\n]+)/im',
-            // X- headers
+            '/^To:[\s\S]*?^Cc:\s*([^\r\n]+)/im',
+            
+            // X- headers and variations
             '/^X-Original-CC:\s*([^\r\n]+)/im',
+            '/^X-Original-Cc:\s*([^\r\n]+)/im',
             '/^Original-CC:\s*([^\r\n]+)/im',
+            '/^Original-Cc:\s*([^\r\n]+)/im',
             '/^Resent-CC:\s*([^\r\n]+)/im',
+            '/^Resent-Cc:\s*([^\r\n]+)/im',
+            
             // EML attachment format - "Sent:" followed by "Cc:" (case insensitive, multiline)
             '/Sent:[^\r\n]*\r?\n[^\r\n]*\r?\nCc:\s*([^\r\n]+)/im',
             '/Sent:[^\r\n]*\r?\nCc:\s*([^\r\n]+)/im',
-            // After "To:" line, look for "Cc:" on next line
+            '/Sent:[^\r\n]*\r?\n[^\r\n]*\r?\nCC:\s*([^\r\n]+)/im',
+            '/Sent:[^\r\n]*\r?\nCC:\s*([^\r\n]+)/im',
+            
+            // After "To:" line, look for "Cc:" on next line (various spacing)
             '/To:[^\r\n]*\r?\n\s*Cc:\s*([^\r\n]+)/im',
             '/To:[^\r\n]*\r?\n\s*CC:\s*([^\r\n]+)/im',
+            '/To:[^\r\n]*\n\s*Cc:\s*([^\n]+)/im',
+            '/To:[^\r\n]*\n\s*CC:\s*([^\n]+)/im',
+            
+            // More flexible patterns - CC anywhere after To:
+            '/To:[^\r\n]*(?:\r?\n[^\r\n]*){0,5}\r?\n\s*[Cc]{2}:\s*([^\r\n]+)/im',
+            
+            // Pattern for embedded emails: From/Sent/To/Cc sequence
+            '/From:[^\r\n]*\r?\n(?:Sent:[^\r\n]*\r?\n)?To:[^\r\n]*\r?\n\s*[Cc]{2}:\s*([^\r\n]+)/im',
+            
+            // Very aggressive: Any line starting with CC: or Cc: (case variations)
+            '/^[Cc]{2}:\s*([^\r\n]+)/im',
+            '/\r\n[Cc]{2}:\s*([^\r\n]+)/i',
+            '/\n[Cc]{2}:\s*([^\n]+)/i',
         ];
         
         foreach ($searchTexts as $sourceName => $text) {
@@ -585,6 +616,44 @@ class EmailParser {
                 if (preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $potentialCc)) {
                     $parsed = $this->parseEmailList($potentialCc);
                     $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // ULTRA AGGRESSIVE: Extract ALL email addresses that appear between "To:" and "Subject:" lines
+            // This catches CC addresses even if the "Cc:" label is missing or malformed
+            if (preg_match_all('/To:[^\r\n]*(?:\r?\n[^\r\n]*)*?\r?\n\s*([^\r\n]+)\r?\n\s*Subject:/is', $text, $potentialMatches, PREG_SET_ORDER)) {
+                foreach ($potentialMatches as $potentialMatch) {
+                    $potentialCc = trim($potentialMatch[1]);
+                    // Extract all email addresses from this line
+                    if (preg_match_all('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $potentialCc, $emailMatches)) {
+                        foreach ($emailMatches[0] as $email) {
+                            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                                $ccAddresses[] = $email;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // EXTREME: Search for email addresses near "To:" that aren't the "To:" address itself
+            // This catches CC addresses that might be on the same line or nearby
+            if (preg_match('/To:\s*([^\r\n]+)/i', $text, $toMatch)) {
+                $toLine = $toMatch[0];
+                // Get context around the To: line
+                $toPos = strpos($text, $toLine);
+                if ($toPos !== false) {
+                    $context = substr($text, $toPos, 500); // 500 chars after To:
+                    // Extract all emails from context
+                    if (preg_match_all('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $context, $contextEmails)) {
+                        foreach ($contextEmails[0] as $email) {
+                            // Skip if it's clearly the To: address (first email after To:)
+                            if (stripos($toLine, $email) === false || strpos($context, $email) > 100) {
+                                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                                    $ccAddresses[] = $email;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

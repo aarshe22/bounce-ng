@@ -246,73 +246,61 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        // NO MESSAGE COUNTING - Just blindly fetch all messages and process them
-        // Don't trust status/num_msg - just try to fetch messages directly
-        // Process ALL messages regardless of read/unread status
-        $this->eventLogger->log('info', "Fetching all messages from folder (ignoring read/unread status)...", null, $this->mailbox['id']);
+        // SEQUENTIAL FETCH AS PRIMARY METHOD - Most reliable way to get ALL messages
+        // Don't trust imap_search - it may filter or miss messages
+        // Start from message 1 and keep going until we can't fetch anymore
+        $this->eventLogger->log('info', "Fetching ALL messages using sequential method (starting from message 1)...", null, $this->mailbox['id']);
         
-        $uids = false;
-        $usingUids = true;
+        $uids = [];
+        $usingUids = false; // Using message numbers for sequential fetch
         
         // Clear any previous IMAP errors
         @\imap_errors();
         
-        // Try with SE_UID first (returns UIDs which are more stable)
-        $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+        // Sequential fetch: start from 1 and keep going until we can't fetch anymore
+        // This is the most reliable method - it gets EVERYTHING regardless of status
+        // Use a smarter approach: keep going until we hit a long gap of missing messages
+        $maxMessages = 50000; // Reasonable upper limit
+        $consecutiveFailures = 0;
+        $maxConsecutiveFailures = 50; // Stop after 50 consecutive failures (handles gaps)
+        $lastFoundMessage = 0;
         
-        if ($uids && is_array($uids) && !empty($uids)) {
-            $usingUids = true;
-            $this->eventLogger->log('info', "✓ Found " . count($uids) . " messages using imap_search with SE_UID", null, $this->mailbox['id']);
-        } else {
-            // Fallback: try without SE_UID flag (returns message numbers, not UIDs)
-            $uids = @\imap_search($this->imapConnection, 'ALL');
+        for ($msgNum = 1; $msgNum <= $maxMessages; $msgNum++) {
+            // Try to fetch the header - if it exists, we have a message
+            $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
             
-            if ($uids && is_array($uids) && !empty($uids)) {
-                $usingUids = false; // These are message numbers, not UIDs
-                $this->eventLogger->log('info', "✓ Found " . count($uids) . " messages using imap_search (message numbers, not UIDs)", null, $this->mailbox['id']);
-            } else {
-                // Last resort: sequential fetch - start from 1 and keep going until we can't fetch anymore
-                $this->eventLogger->log('info', "imap_search failed, trying sequential fetch starting from message 1...", null, $this->mailbox['id']);
-                $uids = [];
-                $usingUids = false;
+            if ($testHeader && !empty(trim($testHeader))) {
+                $uids[] = $msgNum;
+                $lastFoundMessage = $msgNum;
+                $consecutiveFailures = 0; // Reset failure counter
                 
-                // Keep fetching until we hit an error or empty result
-                // Start from 1 and go up to a reasonable limit (10,000 messages)
-                for ($msgNum = 1; $msgNum <= 10000; $msgNum++) {
-                    $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
-                    if ($testHeader && !empty(trim($testHeader))) {
-                        $uids[] = $msgNum;
-                        // Log progress every 100 messages
-                        if ($msgNum % 100 == 0) {
-                            $this->eventLogger->log('info', "Sequential fetch: found {$msgNum} messages so far...", null, $this->mailbox['id']);
-                        }
-                    } else {
-                        // If we've found some messages and this one fails, we're done
-                        if (count($uids) > 0) {
-                            break;
-                        }
-                        // If the first message fails, the folder might be empty (but keep trying a few more)
-                        if ($msgNum > 10) {
-                            break;
-                        }
-                    }
+                // Log progress every 25 messages for visibility
+                if (count($uids) % 25 == 0) {
+                    $this->eventLogger->log('info', "Sequential fetch: found " . count($uids) . " messages so far (currently at message {$msgNum})...", null, $this->mailbox['id']);
+                }
+            } else {
+                $consecutiveFailures++;
+                
+                // Only stop if:
+                // 1. We've found at least one message (so we know messages exist)
+                // 2. We've hit the max consecutive failures (we're past the end)
+                // 3. We're far enough past the last found message (safety check)
+                if (count($uids) > 0 && $consecutiveFailures >= $maxConsecutiveFailures) {
+                    $this->eventLogger->log('info', "Reached end of messages after {$consecutiveFailures} consecutive failures (last found: {$lastFoundMessage}). Found " . count($uids) . " total messages.", null, $this->mailbox['id']);
+                    break;
                 }
                 
-                if (!empty($uids)) {
-                    $this->eventLogger->log('info', "✓ Found " . count($uids) . " messages using sequential fetch", null, $this->mailbox['id']);
-                } else {
-                    $this->eventLogger->log('warning', "All message fetch methods failed. No messages found in folder.", null, $this->mailbox['id']);
-                    return [
-                        'processed' => 0,
-                        'skipped' => 0,
-                        'problems' => 0
-                    ];
+                // If we haven't found any messages yet, keep trying longer
+                // Some IMAP servers might have gaps at the start
+                if (count($uids) == 0 && $msgNum > 100) {
+                    $this->eventLogger->log('warning', "No messages found in first 100 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
+                    break;
                 }
             }
         }
         
-        if (empty($uids) || !is_array($uids)) {
-            $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Returning early.", null, $this->mailbox['id']);
+        if (empty($uids)) {
+            $this->eventLogger->log('warning', "Sequential fetch found no messages in folder '{$inbox}'. Folder may be empty.", null, $this->mailbox['id']);
             return [
                 'processed' => 0,
                 'skipped' => 0,
@@ -321,6 +309,7 @@ class MailboxMonitor {
         }
         
         $messageCount = count($uids);
+        $this->eventLogger->log('info', "✓ Found {$messageCount} messages using sequential fetch (message numbers 1-" . max($uids) . ")", null, $this->mailbox['id']);
         $this->eventLogger->log('info', "Processing {$messageCount} messages from folder '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
 
         $processedCount = 0;
@@ -368,7 +357,7 @@ class MailboxMonitor {
                     continue;
                 }
                 
-                // RECURSIVELY fetch ALL MIME parts from the structure
+                // AGGRESSIVELY fetch ALL MIME parts recursively - this is critical for finding CC addresses
                 $rawParts = ['0' => $rawHeader];
                 $this->fetchAllMimeParts($this->imapConnection, $uid, $structure, $rawParts, '', $imapFlag);
                 
@@ -378,38 +367,67 @@ class MailboxMonitor {
                     $rawParts['FULL_BODY'] = $fullBody;
                 }
                 
-                // Combine all parts - prioritize message/rfc822 parts which contain original email
-                $combinedBody = '';
+                // Also try to fetch body parts using different methods to catch everything
+                // Some IMAP servers structure messages differently
+                for ($partNum = 1; $partNum <= 20; $partNum++) {
+                    $partBody = @\imap_fetchbody($this->imapConnection, $uid, (string)$partNum, $imapFlag);
+                    if ($partBody !== false && !empty(trim($partBody))) {
+                        $rawParts["PART_{$partNum}"] = $partBody;
+                    } else {
+                        // If we've found some parts but this one is empty, we might be done
+                        // But keep trying a few more in case of gaps
+                        if (count($rawParts) > 2 && $partNum > 5) {
+                            break;
+                        }
+                    }
+                }
+                
+                // Decode ALL parts to searchable text - this is critical for CC extraction
+                $decodedParts = [];
                 $messageRfc822Parts = [];
-                $otherParts = [];
+                $allDecodedText = [];
                 
                 foreach ($rawParts as $partNum => $partContent) {
-                    if ($partNum === '0' || $partNum === 'FULL_BODY') {
-                        continue; // Skip header and full body in this loop
+                    if (empty($partContent)) {
+                        continue;
                     }
-                    // Check if this part is message/rfc822 (embedded email)
-                    if (strpos($partContent, 'Content-Type: message/rfc822') !== false || 
-                        strpos($partContent, 'Content-Type: message/rfc822-headers') !== false ||
-                        preg_match('/^From:/m', $partContent)) {
-                        $messageRfc822Parts[] = $partContent;
+                    
+                    // Try to decode this part if it looks encoded
+                    $decoded = $this->decodePartForSearch($partContent);
+                    if (!empty($decoded)) {
+                        $decodedParts[$partNum] = $decoded;
+                        $allDecodedText[] = $decoded;
+                        
+                        // Check if this is message/rfc822 (embedded email) - these are goldmines for CC addresses
+                        if (preg_match('/Content-Type:\s*message\/rfc822/i', $decoded) ||
+                            preg_match('/Content-Type:\s*message\/rfc822-headers/i', $decoded) ||
+                            preg_match('/^From:\s*[^\r\n]+/im', $decoded)) {
+                            $messageRfc822Parts[] = $decoded;
+                        }
                     } else {
-                        $otherParts[] = $partContent;
+                        // Even if decoding fails, include raw content
+                        $allDecodedText[] = $partContent;
                     }
                 }
                 
                 // Prioritize message/rfc822 parts (embedded emails) as they contain original headers
+                $combinedBody = '';
                 if (!empty($messageRfc822Parts)) {
                     $combinedBody = implode("\r\n\r\n", $messageRfc822Parts);
+                    $this->eventLogger->log('debug', "Found " . count($messageRfc822Parts) . " message/rfc822 parts (embedded emails) - these should contain original CC headers", null, $this->mailbox['id']);
                 } else {
-                    $combinedBody = implode("\r\n\r\n", array_filter($otherParts));
+                    $combinedBody = implode("\r\n\r\n", array_filter($allDecodedText));
                 }
                 
                 // Combine header with all body parts
                 $rawEmail = $rawHeader . "\r\n\r\n" . $combinedBody;
                 
-                // Also store all parts separately for the parser to search
-                $allPartsText = implode("\r\n\r\n", array_filter($rawParts));
-                $rawEmail = $rawEmail . "\r\n\r\n---ALL_PARTS---\r\n\r\n" . $allPartsText;
+                // CRITICAL: Include ALL decoded parts for comprehensive CC search
+                // The parser will search through all of this content
+                $allPartsText = implode("\r\n\r\n---PART_SEPARATOR---\r\n\r\n", array_filter($allDecodedText));
+                $rawEmail = $rawEmail . "\r\n\r\n---ALL_DECODED_PARTS---\r\n\r\n" . $allPartsText;
+                
+                $this->eventLogger->log('debug', "Aggressively fetched " . count($rawParts) . " raw parts, decoded " . count($decodedParts) . " parts for CC extraction", null, $this->mailbox['id']);
 
                 $parser = new EmailParser($rawEmail);
                 
@@ -564,13 +582,23 @@ class MailboxMonitor {
     }
 
     private function queueNotifications($bounceId, $ccAddresses) {
+        // Test mode does NOT affect queueing - it only affects the recipient when sending
+        // Queue notifications for ALL CC addresses found, regardless of test mode
+        
         $ccCount = is_array($ccAddresses) ? count($ccAddresses) : 0;
-        $this->eventLogger->log('debug', "queueNotifications called for bounce ID {$bounceId} with {$ccCount} CC addresses", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "queueNotifications called for bounce ID {$bounceId} with {$ccCount} CC addresses", null, $this->mailbox['id']);
         
         if (empty($ccAddresses) || !is_array($ccAddresses) || $ccCount === 0) {
             $this->eventLogger->log('info', "No CC addresses to queue notifications for bounce ID {$bounceId}", null, $this->mailbox['id']);
             return;
         }
+
+        // Log the CC addresses we're about to queue
+        $ccList = implode(', ', array_slice($ccAddresses, 0, 10));
+        if (count($ccAddresses) > 10) {
+            $ccList .= ' ... (' . (count($ccAddresses) - 10) . ' more)';
+        }
+        $this->eventLogger->log('info', "Queueing notifications for CC addresses: {$ccList}", null, $this->mailbox['id']);
 
         $stmt = $this->db->prepare("
             INSERT OR IGNORE INTO notifications_queue (bounce_id, recipient_email, status)
@@ -579,35 +607,61 @@ class MailboxMonitor {
 
         $queuedCount = 0;
         $skippedCount = 0;
+        $errorCount = 0;
+        
         foreach ($ccAddresses as $email) {
             $email = trim($email);
             if (empty($email)) {
+                $skippedCount++;
                 continue;
             }
             
+            // Normalize email to lowercase for consistency
+            $email = strtolower($email);
+            
             if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 try {
-                    $params = [$bounceId, strtolower($email)];
+                    $params = [$bounceId, $email];
                     // Log SQL for debugging (not events_log, so safe)
                     $this->db->logSql($stmt->queryString, $params);
                     $stmt->execute($params);
-                    if ($stmt->rowCount() > 0) {
+                    
+                    // Check if row was actually inserted (INSERT OR IGNORE returns 0 if duplicate)
+                    $rowsAffected = $stmt->rowCount();
+                    if ($rowsAffected > 0) {
                         $queuedCount++;
-                        $this->eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                        $this->eventLogger->log('info', "✓ Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
                     } else {
                         $skippedCount++;
-                        $this->eventLogger->log('debug', "Notification for {$email} already exists (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                        $this->eventLogger->log('debug', "Notification for {$email} already exists in queue (bounce ID: {$bounceId})", null, $this->mailbox['id']);
                     }
-                } catch (Exception $e) {
-                    $this->eventLogger->log('warning', "Failed to queue notification for {$email}: {$e->getMessage()}", null, $this->mailbox['id']);
+                } catch (\Exception $e) {
+                    $errorCount++;
+                    $this->eventLogger->log('error', "Failed to queue notification for {$email} (bounce ID: {$bounceId}): {$e->getMessage()}", null, $this->mailbox['id']);
+                    error_log("MailboxMonitor: Failed to queue notification - " . $e->getMessage() . " | Email: {$email} | Bounce ID: {$bounceId}");
                 }
             } else {
                 $skippedCount++;
-                $this->eventLogger->log('debug', "Skipping invalid email address: {$email}", null, $this->mailbox['id']);
+                $this->eventLogger->log('warning', "Skipping invalid email address: {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
             }
         }
         
-        $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}" . ($skippedCount > 0 ? " ({$skippedCount} skipped)" : ""), null, $this->mailbox['id']);
+        // Log summary
+        $summary = "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}";
+        if ($skippedCount > 0) {
+            $summary .= " ({$skippedCount} skipped - duplicates or invalid)";
+        }
+        if ($errorCount > 0) {
+            $summary .= " ({$errorCount} errors)";
+        }
+        $this->eventLogger->log('info', $summary, null, $this->mailbox['id']);
+        
+        // Also log to error_log for visibility
+        if ($queuedCount > 0) {
+            error_log("MailboxMonitor: Successfully queued {$queuedCount} notification(s) for bounce ID {$bounceId}");
+        } else {
+            error_log("MailboxMonitor: WARNING - No notifications queued for bounce ID {$bounceId} (skipped: {$skippedCount}, errors: {$errorCount})");
+        }
     }
 
     /**
@@ -653,6 +707,38 @@ class MailboxMonitor {
                 }
             }
         }
+    }
+
+    /**
+     * Decode a part for searching - handles base64, quoted-printable, etc.
+     * This is a helper to decode parts before passing to EmailParser
+     */
+    private function decodePartForSearch($content) {
+        if (empty($content)) {
+            return '';
+        }
+        
+        // Try base64 decode if it looks like base64
+        if (preg_match('/^[A-Za-z0-9+\/=\s\r\n]+$/', $content) && strlen($content) > 50) {
+            $decoded = @base64_decode($content, true);
+            if ($decoded !== false && strlen($decoded) > 10) {
+                // Check if decoded looks like text (not binary)
+                if (preg_match('/[a-zA-Z0-9\s@\.\-:]+/', $decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+        
+        // Try quoted-printable decode
+        if (preg_match('/=[0-9A-F]{2}/i', $content)) {
+            $decoded = @quoted_printable_decode($content);
+            if ($decoded !== $content && !empty($decoded)) {
+                return $decoded;
+            }
+        }
+        
+        // Return as-is if no decoding needed or decoding failed
+        return $content;
     }
 
     private function moveMessage($messageNum, $folder, $useUid = false) {
@@ -778,3 +864,4 @@ class MailboxMonitor {
         $this->disconnect();
     }
 }
+

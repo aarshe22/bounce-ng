@@ -18,6 +18,17 @@ class NotificationSender {
         $this->relayProviderId = $relayProviderId;
     }
 
+    /**
+     * Set test mode - ONLY affects the recipient email when sending notifications
+     * Test mode does NOT affect:
+     * - Bounce detection
+     * - CC address extraction
+     * - Notification queueing
+     * - Any other processing
+     * 
+     * When test mode is enabled, notifications are sent to the override email
+     * instead of the original CC addresses, but all other behavior is identical.
+     */
     public function setTestMode($enabled, $overrideEmail = '') {
         $this->testMode = $enabled;
         $this->overrideEmail = $overrideEmail ?: TEST_MODE_OVERRIDE_EMAIL;
@@ -70,6 +81,8 @@ class NotificationSender {
         }
 
         // Prepare email
+        // TEST MODE: Only override the recipient - all other processing is identical
+        // Notifications are still queued normally, test mode only changes where they're sent
         $recipient = $this->testMode ? $this->overrideEmail : $notification['recipient_email'];
         $subject = $this->replaceTemplateVars($notification['template_subject'], $notification);
         $body = $this->replaceTemplateVars($notification['template_body'], $notification, $recommendation);
