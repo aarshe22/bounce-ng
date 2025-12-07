@@ -174,38 +174,31 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        // Get message count using imap_status with the actual mailbox path (most reliable)
-        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
-        $messageCount = 0;
-        $unseenCount = 0;
+        // Get message count - imap_num_msg() is most reliable for the currently selected mailbox
+        // It counts ALL messages regardless of read/unread status
+        $messageCount = @imap_num_msg($this->imapConnection);
+        $this->eventLogger->log('info', "Message count from imap_num_msg (selected mailbox): {$messageCount}", null, $this->mailbox['id']);
         
-        if ($status) {
-            $messageCount = $status->messages ?? 0;
-            $unseenCount = $status->unseen ?? 0;
-            $this->eventLogger->log('info', "Message count from imap_status for '{$actualMailboxPath}': {$messageCount} total, {$unseenCount} unseen", null, $this->mailbox['id']);
-        } else {
-            $error = imap_last_error();
-            $this->eventLogger->log('warning', "imap_status failed for '{$actualMailboxPath}': {$error}", null, $this->mailbox['id']);
+        // Also get status for additional info (unseen count)
+        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_UNSEEN);
+        $unseenCount = 0;
+        if ($status && isset($status->unseen)) {
+            $unseenCount = $status->unseen;
         }
         
-        // If status says 0, try selecting the folder and using imap_num_msg
+        // If imap_num_msg returns 0, try other methods
         if ($messageCount == 0) {
-            // Force selection one more time
-            @imap_reopen($this->imapConnection, $actualMailboxPath);
-            @imap_select($this->imapConnection, $actualMailboxPath);
-            
-            $numMsgCount = @imap_num_msg($this->imapConnection);
-            if ($numMsgCount > 0) {
-                $messageCount = $numMsgCount;
-                $this->eventLogger->log('info', "Message count from imap_num_msg after selection: {$messageCount}", null, $this->mailbox['id']);
-            }
-            
-            // Last resort: try imap_search
-            if ($messageCount == 0) {
-                $searchResult = @imap_search($this->imapConnection, 'ALL');
-                if ($searchResult && count($searchResult) > 0) {
-                    $messageCount = count($searchResult);
-                    $this->eventLogger->log('info', "Message count from imap_search('ALL'): {$messageCount}", null, $this->mailbox['id']);
+            // Try imap_search as backup
+            $searchResult = @imap_search($this->imapConnection, 'ALL');
+            if ($searchResult && count($searchResult) > 0) {
+                $messageCount = count($searchResult);
+                $this->eventLogger->log('info', "Message count from imap_search('ALL'): {$messageCount}", null, $this->mailbox['id']);
+            } else {
+                // Try status one more time
+                $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
+                if ($status && isset($status->messages) && $status->messages > 0) {
+                    $messageCount = $status->messages;
+                    $this->eventLogger->log('info', "Message count from imap_status: {$messageCount}", null, $this->mailbox['id']);
                 }
             }
         }
