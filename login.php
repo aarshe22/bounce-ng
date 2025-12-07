@@ -43,6 +43,7 @@ if (isset($_SESSION['user_id'])) {
                     </div>
                 <?php endif; ?>
                 <div class="d-grid gap-2">
+                    <?php if (!empty(GOOGLE_CLIENT_ID) && !empty(GOOGLE_CLIENT_SECRET)): ?>
                     <a href="/auth/google.php" class="btn btn-danger">
                         <svg width="18" height="18" viewBox="0 0 18 18" class="me-2">
                             <path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.428h2.908c1.702-1.567 2.684-3.874 2.684-6.785z"/>
@@ -52,6 +53,8 @@ if (isset($_SESSION['user_id'])) {
                         </svg>
                         Sign in with Google
                     </a>
+                    <?php endif; ?>
+                    <?php if (!empty(MICROSOFT_CLIENT_ID) && !empty(MICROSOFT_CLIENT_SECRET)): ?>
                     <a href="/auth/microsoft.php" class="btn btn-primary">
                         <svg width="18" height="18" viewBox="0 0 23 23" class="me-2">
                             <path fill="#fff" d="M0 0h11.377v11.372H0z"/>
@@ -61,6 +64,13 @@ if (isset($_SESSION['user_id'])) {
                         </svg>
                         Sign in with Microsoft
                     </a>
+                    <?php endif; ?>
+                    <?php if (empty(GOOGLE_CLIENT_ID) && empty(MICROSOFT_CLIENT_ID)): ?>
+                    <div class="alert alert-warning">
+                        <strong>No OAuth providers configured.</strong><br>
+                        Please configure at least one OAuth provider in your .env file.
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
