@@ -141,16 +141,24 @@ class MailboxMonitor {
         // CRITICAL: Get the actual connection string that imap_list uses
         // imap_list returns paths that include the full connection string with authentication
         // We need to extract the base connection string from the first mailbox path
+        // Format from imap_list: {server:port/imap/user="user"}FOLDER
         $baseConnectionString = $connectionString;
         if ($allMailboxes && count($allMailboxes) > 0) {
             // Extract the connection string part from the first mailbox path
-            // Format: {server:port/imap/user="user"}FOLDER
             $firstMailbox = $allMailboxes[0];
-            // Find the closing brace and extract everything up to and including it
-            $bracePos = strrpos($firstMailbox, '}');
+            // Find the LAST closing brace (there may be multiple if folder names contain braces)
+            // The connection string ends with the brace before the folder name
+            $bracePos = strpos($firstMailbox, '}');
             if ($bracePos !== false) {
+                // Look for the pattern: }FOLDER (where FOLDER doesn't start with another {)
+                // Actually, the connection string is everything up to and including the first }
+                // that's followed by a non-brace character (the folder name)
                 $baseConnectionString = substr($firstMailbox, 0, $bracePos + 1);
-                $this->eventLogger->log('debug', "Extracted base connection string from imap_list: '{$baseConnectionString}'", null, $this->mailbox['id']);
+                $this->eventLogger->log('debug', "Extracted base connection string from imap_list: '{$baseConnectionString}' (from: '{$firstMailbox}')", null, $this->mailbox['id']);
+            } else {
+                // Fallback: if no brace found, try to find where the folder name starts
+                // This shouldn't happen with proper IMAP paths, but handle it anyway
+                $this->eventLogger->log('warning', "Could not extract base connection string from mailbox path: '{$firstMailbox}'", null, $this->mailbox['id']);
             }
         }
         
@@ -268,9 +276,30 @@ class MailboxMonitor {
         $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_ALL);
         $numMsg = @\imap_num_msg($this->imapConnection);
         
-        $this->eventLogger->log('info', "IMAP diagnostics - imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
+        $this->eventLogger->log('info', "IMAP diagnostics - Selected path: '{$actualMailboxPath}' | imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
             " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
             " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
+        
+        // CRITICAL CHECK: If imap_check reports a different mailbox path than what we selected, we have a mismatch!
+        if ($checkResult && isset($checkResult->Mailbox) && $checkResult->Mailbox !== $actualMailboxPath) {
+            $this->eventLogger->log('error', "FOLDER MISMATCH! We selected '{$actualMailboxPath}' but imap_check reports '{$checkResult->Mailbox}'. This means we're in the wrong folder!", null, $this->mailbox['id']);
+            // Try to select the folder that imap_check says we're actually in
+            $this->eventLogger->log('info', "Attempting to select the correct folder: '{$checkResult->Mailbox}'", null, $this->mailbox['id']);
+            $reopenResult = @\imap_reopen($this->imapConnection, $checkResult->Mailbox);
+            if ($reopenResult) {
+                $actualMailboxPath = $checkResult->Mailbox;
+                $this->eventLogger->log('info', "Successfully reopened to correct folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
+                // Re-check after reopening
+                $checkResult = @\imap_check($this->imapConnection);
+                $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_ALL);
+                $numMsg = @\imap_num_msg($this->imapConnection);
+                $this->eventLogger->log('info', "After reopening - imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
+                    " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
+                    " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
+            } else {
+                $this->eventLogger->log('error', "Failed to reopen to correct folder: " . (\imap_last_error() ?: 'unknown error'), null, $this->mailbox['id']);
+            }
+        }
         
         // SEQUENTIAL FETCH AS PRIMARY METHOD - Most reliable way to get ALL messages
         // Don't trust imap_search - it may filter or miss messages
