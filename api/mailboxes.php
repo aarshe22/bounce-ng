@@ -102,10 +102,17 @@ try {
                 
                 echo json_encode(['success' => true, 'id' => $mailboxId]);
             } elseif ($path === 'process' && isset($data['mailbox_id'])) {
-                $monitor = new MailboxMonitor($data['mailbox_id']);
-                $monitor->connect();
-                $result = $monitor->processInbox();
-                $monitor->disconnect();
+                try {
+                    $monitor = new MailboxMonitor($data['mailbox_id']);
+                    // Don't call connect() here - processInbox() handles its own connection
+                    $result = $monitor->processInbox();
+                    $monitor->disconnect();
+                } catch (Exception $e) {
+                    error_log("Error processing mailbox: " . $e->getMessage());
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                    exit;
+                }
                 
                 // Send notifications if real-time mode
                 $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");

@@ -277,16 +277,41 @@ class MailboxMonitor {
             }
             $foldersList = implode(', ', $availableFolders);
             $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            // Return early if no messages
+            return [
+                'processed' => 0,
+                'skipped' => 0,
+                'problems' => 0
+            ];
         }
         
-        $this->eventLogger->log('info', "Processing {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "Starting to process {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
 
         $processedCount = 0;
         $skippedCount = 0;
         $problemCount = 0;
 
+        // Verify we have a valid connection and folder is selected
+        if (!$this->imapConnection) {
+            $this->eventLogger->log('error', "IMAP connection lost before processing", null, $this->mailbox['id']);
+            throw new Exception("IMAP connection lost before processing");
+        }
+
+        // Double-check message count right before processing
+        $verifyCount = @imap_num_msg($this->imapConnection);
+        if ($verifyCount != $messageCount && $verifyCount > 0) {
+            $this->eventLogger->log('info', "Message count changed: was {$messageCount}, now {$verifyCount}. Using current count.", null, $this->mailbox['id']);
+            $messageCount = $verifyCount;
+        } elseif ($verifyCount == 0 && $messageCount > 0) {
+            // Status said there are messages but num_msg says 0 - use status count
+            $this->eventLogger->log('warning', "imap_num_msg returned 0 but status reported {$messageCount} messages. Using status count.", null, $this->mailbox['id']);
+        }
+
+        $this->eventLogger->log('info', "Entering processing loop for {$messageCount} messages", null, $this->mailbox['id']);
+
         // Process all messages (1 to messageCount) regardless of read/unread status
         for ($i = 1; $i <= $messageCount; $i++) {
+            $this->eventLogger->log('debug', "Processing message {$i} of {$messageCount}", null, $this->mailbox['id']);
             try {
                 // Fetch message using message number (not UID) - processes all messages
                 $header = @imap_headerinfo($this->imapConnection, $i);
