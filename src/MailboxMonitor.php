@@ -246,6 +246,15 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
+        // DIAGNOSTIC: Check what the server reports BEFORE we start fetching
+        $checkResult = @\imap_check($this->imapConnection);
+        $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_ALL);
+        $numMsg = @\imap_num_msg($this->imapConnection);
+        
+        $this->eventLogger->log('info', "IMAP diagnostics - imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
+            " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
+            " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
+        
         // SEQUENTIAL FETCH AS PRIMARY METHOD - Most reliable way to get ALL messages
         // Don't trust imap_search - it may filter or miss messages
         // Start from message 1 and keep going until we can't fetch anymore
@@ -265,14 +274,40 @@ class MailboxMonitor {
         $maxConsecutiveFailures = 50; // Stop after 50 consecutive failures (handles gaps)
         $lastFoundMessage = 0;
         
+        // If server reports messages exist, be more persistent
+        $serverReportsMessages = false;
+        $reportedCount = 0;
+        if ($checkResult && isset($checkResult->Nmsgs) && $checkResult->Nmsgs > 0) {
+            $serverReportsMessages = true;
+            $reportedCount = $checkResult->Nmsgs;
+        } elseif ($status && isset($status->messages) && $status->messages > 0) {
+            $serverReportsMessages = true;
+            $reportedCount = $status->messages;
+        } elseif ($numMsg && $numMsg > 0) {
+            $serverReportsMessages = true;
+            $reportedCount = $numMsg;
+        }
+        
+        if ($serverReportsMessages) {
+            $this->eventLogger->log('info', "Server reports {$reportedCount} messages exist - will search aggressively up to message " . ($reportedCount * 2), null, $this->mailbox['id']);
+            // If server says messages exist, search at least up to 2x the reported count
+            $maxMessages = max($maxMessages, $reportedCount * 2);
+        }
+        
         for ($msgNum = 1; $msgNum <= $maxMessages; $msgNum++) {
             // Try to fetch the header - if it exists, we have a message
             $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
+            $lastError = @\imap_last_error();
             
             if ($testHeader && !empty(trim($testHeader))) {
                 $uids[] = $msgNum;
                 $lastFoundMessage = $msgNum;
                 $consecutiveFailures = 0; // Reset failure counter
+                
+                // Log first message found
+                if (count($uids) == 1) {
+                    $this->eventLogger->log('info', "✓ Found first message at number {$msgNum}", null, $this->mailbox['id']);
+                }
                 
                 // Log progress every 25 messages for visibility
                 if (count($uids) % 25 == 0) {
@@ -292,29 +327,39 @@ class MailboxMonitor {
                 
                 // If we haven't found any messages yet, keep trying longer
                 // Some IMAP servers might have gaps at the start
-                // BUT: if imap_status or imap_num_msg says there are messages, keep trying even longer
                 if (count($uids) == 0) {
-                    // Check if server reports messages exist - if so, be more persistent
-                    if ($msgNum == 100) {
-                        // After 100 attempts, check what the server says
-                        $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
-                        $numMsg = @\imap_num_msg($this->imapConnection);
-                        $serverSaysMessages = ($status && isset($status->messages) && $status->messages > 0) || ($numMsg && $numMsg > 0);
-                        
-                        if ($serverSaysMessages) {
-                            $reportedCount = ($status && isset($status->messages)) ? $status->messages : ($numMsg ? $numMsg : 'unknown');
-                            $this->eventLogger->log('info', "Server reports {$reportedCount} messages exist but sequential fetch hasn't found any yet. Continuing search...", null, $this->mailbox['id']);
-                            // Continue searching - don't give up yet
-                        } else {
-                            $this->eventLogger->log('warning', "No messages found in first 100 attempts and server confirms folder is empty. Stopping sequential fetch.", null, $this->mailbox['id']);
+                    // If server reports messages exist, be VERY persistent
+                    if ($serverReportsMessages) {
+                        // Server says messages exist - keep trying up to reported count
+                        if ($msgNum > $reportedCount * 2) {
+                            $this->eventLogger->log('warning', "Server reports {$reportedCount} messages but couldn't find any after checking up to message " . ($reportedCount * 2) . ". Last error: " . ($lastError ?: 'none'), null, $this->mailbox['id']);
                             break;
                         }
-                    }
-                    
-                    // If we've tried 1000 times and still nothing, give up
-                    if ($msgNum >= 1000) {
-                        $this->eventLogger->log('warning', "No messages found after 1000 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
-                        break;
+                        // Continue searching - don't give up
+                    } else {
+                        // Server says no messages - check again at 100 and 1000
+                        if ($msgNum == 100) {
+                            // Re-check what server says
+                            $recheckStatus = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
+                            $recheckNum = @\imap_num_msg($this->imapConnection);
+                            if (($recheckStatus && isset($recheckStatus->messages) && $recheckStatus->messages > 0) || ($recheckNum && $recheckNum > 0)) {
+                                $newCount = ($recheckStatus && isset($recheckStatus->messages)) ? $recheckStatus->messages : $recheckNum;
+                                $this->eventLogger->log('info', "Server now reports {$newCount} messages exist. Continuing search...", null, $this->mailbox['id']);
+                                $serverReportsMessages = true;
+                                $reportedCount = $newCount;
+                                $maxMessages = max($maxMessages, $reportedCount * 2);
+                                // Continue searching
+                            } else {
+                                $this->eventLogger->log('warning', "No messages found in first 100 attempts and server confirms folder is empty. Stopping sequential fetch.", null, $this->mailbox['id']);
+                                break;
+                            }
+                        }
+                        
+                        // If we've tried 1000 times and still nothing, give up
+                        if ($msgNum >= 1000) {
+                            $this->eventLogger->log('warning', "No messages found after 1000 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
+                            break;
+                        }
                     }
                 }
             }
