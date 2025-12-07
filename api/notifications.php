@@ -97,17 +97,17 @@ try {
                 ini_set('max_execution_time', 1800);
                 ignore_user_abort(true);
                 
-                // Call notify-cron.php via HTTP with send_only parameter
-                $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
-                $cronUrl = $baseUrl . '/notify-cron.php?send_only=1';
+                // Execute notify-cron.php in CLI mode with --send-only flag
+                $cronScript = __DIR__ . '/../notify-cron.php';
+                $phpBinary = PHP_BINARY;
+                $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' --send-only 2>&1';
                 
-                // Make async HTTP request
-                $ch = curl_init($cronUrl);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 1);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
-                curl_exec($ch);
-                curl_close($ch);
+                // Execute in background (non-blocking)
+                if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                    pclose(popen("start /B " . $command, "r"));
+                } else {
+                    exec($command . ' > /dev/null 2>&1 &');
+                }
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);

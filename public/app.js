@@ -1442,3 +1442,51 @@ async function deleteUser(id) {
     }
 }
 
+// Run Cron Script
+async function runCron() {
+    const runCronBtn = document.getElementById('runCronBtn');
+    const originalText = runCronBtn ? runCronBtn.innerHTML : '';
+    
+    try {
+        // Disable button and show loading state
+        if (runCronBtn) {
+            runCronBtn.disabled = true;
+            runCronBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running...';
+        }
+        
+        addEventLogMessage('info', 'Starting cron script execution...');
+        
+        const response = await fetch('/api/cron.php?action=run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            addEventLogMessage('success', 'Cron script started successfully');
+            // Refresh data after a delay
+            setTimeout(() => {
+                loadDashboard();
+                loadNotificationQueue();
+                loadEventLog();
+            }, 2000);
+        } else {
+            addEventLogMessage('error', 'Error starting cron script: ' + (data.error || 'Unknown error'));
+            alert('Error: ' + (data.error || 'Failed to start cron script'));
+        }
+    } catch (error) {
+        console.error('Error running cron:', error);
+        addEventLogMessage('error', 'Error running cron script: ' + error.message);
+        alert('Error running cron script: ' + error.message);
+    } finally {
+        // Re-enable button after a delay
+        setTimeout(() => {
+            if (runCronBtn) {
+                runCronBtn.disabled = false;
+                runCronBtn.innerHTML = originalText;
+            }
+        }, 3000);
+    }
+}
+
