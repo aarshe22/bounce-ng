@@ -600,7 +600,7 @@ class MailboxMonitor {
                 $ccCount = is_array($originalCc) ? count($originalCc) : 0;
                 $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: {$ccCount} addresses)", null, $this->mailbox['id'], $bounceId);
 
-            } catch (Exception $e) {
+            } catch (\Exception $e) {
                 // Error processing, move to problem
                 $this->moveMessage($uid, $problem, true); // true = use UID
                 $problemCount++;

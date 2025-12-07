@@ -109,9 +109,15 @@ document.getElementById('notificationModeToggle').addEventListener('change', fun
 async function loadMailboxes() {
     try {
         const response = await fetch('/api/mailboxes.php?action=list');
+        if (!response.ok) {
+            console.error('Failed to load mailboxes:', response.status, response.statusText);
+            return;
+        }
         const data = await response.json();
         if (data.success) {
-            displayMailboxes(data.data);
+            displayMailboxes(data.data || []);
+        } else {
+            console.error('Error loading mailboxes:', data.error || 'Unknown error');
         }
     } catch (error) {
         console.error('Error loading mailboxes:', error);
@@ -120,7 +126,16 @@ async function loadMailboxes() {
 
 function displayMailboxes(mailboxes) {
     const container = document.getElementById('mailboxList');
+    if (!container) {
+        console.error('mailboxList container not found');
+        return;
+    }
     container.innerHTML = '';
+    
+    if (!mailboxes || mailboxes.length === 0) {
+        container.innerHTML = '<div class="list-group-item text-muted text-center">No mailboxes configured</div>';
+        return;
+    }
     
     mailboxes.forEach(mailbox => {
         const item = document.createElement('div');
@@ -151,10 +166,16 @@ function displayMailboxes(mailboxes) {
 async function loadRelayProviders() {
     try {
         const response = await fetch('/api/relay-providers.php?action=list');
+        if (!response.ok) {
+            console.error('Failed to load relay providers:', response.status, response.statusText);
+            return;
+        }
         const data = await response.json();
         if (data.success) {
-            displayRelayProviders(data.data);
-            updateRelayProviderSelect(data.data);
+            displayRelayProviders(data.data || []);
+            updateRelayProviderSelect(data.data || []);
+        } else {
+            console.error('Error loading relay providers:', data.error || 'Unknown error');
         }
     } catch (error) {
         console.error('Error loading relay providers:', error);
@@ -163,9 +184,17 @@ async function loadRelayProviders() {
 
 function displayRelayProviders(providers) {
     const container = document.getElementById('relayProviderList');
-    if (!container) return;
+    if (!container) {
+        console.error('relayProviderList container not found');
+        return;
+    }
     
     container.innerHTML = '';
+    
+    if (!providers || providers.length === 0) {
+        container.innerHTML = '<div class="list-group-item text-muted text-center">No relay providers configured</div>';
+        return;
+    }
     
     providers.forEach(provider => {
         const item = document.createElement('div');
