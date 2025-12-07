@@ -13,12 +13,12 @@ document.addEventListener('DOMContentLoaded', function() {
     loadEventLog();
     loadNotificationQueue();
     
-    // Start polling for events
+    // Start polling for events - poll more frequently for real-time updates
     eventPollInterval = setInterval(() => {
         if (!logPaused) {
             loadEventLog();
         }
-    }, 2000);
+    }, 1000); // Poll every 1 second for better real-time feel
     
     // Poll dashboard every 10 seconds
     setInterval(loadDashboard, 10000);
@@ -503,6 +503,16 @@ async function runProcessing() {
                 return;
             }
             
+            // Increase polling frequency during processing
+            const originalInterval = eventPollInterval;
+            clearInterval(eventPollInterval);
+            eventPollInterval = setInterval(() => {
+                if (!logPaused) {
+                    loadEventLog();
+                }
+            }, 500); // Poll every 500ms during processing
+            
+            // Process mailboxes
             for (const mailbox of enabledMailboxes) {
                 try {
                     const processResponse = await fetch('/api/mailboxes.php?action=process', {
@@ -519,6 +529,14 @@ async function runProcessing() {
                 }
             }
             
+            // Restore original polling interval after processing
+            clearInterval(eventPollInterval);
+            eventPollInterval = setInterval(() => {
+                if (!logPaused) {
+                    loadEventLog();
+                }
+            }, 2000);
+            
             loadMailboxes();
             loadDashboard();
             loadEventLog();
@@ -527,6 +545,15 @@ async function runProcessing() {
         }
     } catch (error) {
         alert('Error running processing: ' + error.message);
+        // Restore original polling interval on error
+        if (eventPollInterval) {
+            clearInterval(eventPollInterval);
+            eventPollInterval = setInterval(() => {
+                if (!logPaused) {
+                    loadEventLog();
+                }
+            }, 2000);
+        }
     }
 }
 

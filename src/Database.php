@@ -28,6 +28,9 @@ class Database {
         }
 
         $this->pdo = new PDO('sqlite:' . DB_PATH);
+        // Enable WAL mode for better concurrency and immediate writes
+        $this->pdo->exec('PRAGMA journal_mode=WAL');
+        $this->pdo->exec('PRAGMA synchronous=NORMAL'); // Faster than FULL, still safe
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
