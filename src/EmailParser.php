@@ -429,6 +429,12 @@ class EmailParser {
             '/^X-Original-CC:\s*([^\r\n]+)/im',
             '/^Original-CC:\s*([^\r\n]+)/im',
             '/^Resent-CC:\s*([^\r\n]+)/im',
+            // EML attachment format - "Sent:" followed by "Cc:" (case insensitive, multiline)
+            '/Sent:[^\r\n]*\r?\n[^\r\n]*\r?\nCc:\s*([^\r\n]+)/im',
+            '/Sent:[^\r\n]*\r?\nCc:\s*([^\r\n]+)/im',
+            // After "To:" line, look for "Cc:" on next line
+            '/To:[^\r\n]*\r?\n\s*Cc:\s*([^\r\n]+)/im',
+            '/To:[^\r\n]*\r?\n\s*CC:\s*([^\r\n]+)/im',
         ];
         
         foreach ($searchTexts as $sourceName => $text) {
@@ -445,7 +451,7 @@ class EmailParser {
             }
         }
         
-        // Method from example: extract between "cc:" and "reply-to:" or "date:"
+        // Method from example: extract between "cc:" and "reply-to:" or "date:" or "subject:"
         foreach ($searchTexts as $sourceName => $text) {
             $lowerText = strtolower($text);
             
@@ -467,8 +473,46 @@ class EmailParser {
                 }
             }
             
+            // Try between "cc:" and "subject:"
+            if (preg_match('/cc:\s*([^\r\n]*?)(?:\r?\n\s*subject:)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
             // Try to find CC after "to:" and before next header
             if (preg_match('/to:[^\r\n]*\r?\n\s*cc:\s*([^\r\n]+)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // Special pattern for EML format: "Sent: ... To: ... Cc: ... Subject:"
+            // This matches the exact format from the example: "Sent: ... To: ... Cc: u18oneclick@airdriehockey.com <u18oneclick@airdriehockey.com>"
+            if (preg_match('/sent:[^\r\n]*\r?\n[^\r\n]*to:[^\r\n]*\r?\n\s*cc:\s*([^\r\n]+)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // Also try case-sensitive search for "Cc:" (not just "cc:")
+            if (preg_match('/Sent:[^\r\n]*\r?\n[^\r\n]*To:[^\r\n]*\r?\n\s*Cc:\s*([^\r\n]+)/is', $text, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // Pattern for EML attachment format with exact spacing
+            // Matches: "From: ...\nSent: ...\nTo: ...\nCc: ...\nSubject: ..."
+            if (preg_match('/From:[^\r\n]*\r?\nSent:[^\r\n]*\r?\nTo:[^\r\n]*\r?\nCc:\s*([^\r\n]+)/is', $text, $matches)) {
                 $ccList = trim($matches[1]);
                 if (!empty($ccList)) {
                     $parsed = $this->parseEmailList($ccList);
@@ -544,24 +588,46 @@ class EmailParser {
     private function parseEmailList($emailList) {
         $emails = [];
         
-        // Remove any angle brackets and extract emails
-        $emailList = preg_replace('/<([^>]+)>/', '$1', $emailList);
+        if (empty($emailList)) {
+            return $emails;
+        }
         
-        // Split by common delimiters
-        $parts = preg_split('/[,;]\s*/', $emailList);
-        
-        foreach ($parts as $part) {
-            $part = trim($part);
-            if (empty($part)) {
-                continue;
+        // First, extract all email addresses using regex (handles all formats)
+        // Format 1: "email@domain.com <email@domain.com>" (from EML attachments)
+        // Format 2: "email@domain.com"
+        // Format 3: "Name <email@domain.com>"
+        // Format 4: "email@domain.com, email2@domain.com"
+        // The regex captures email addresses both inside and outside angle brackets
+        if (preg_match_all('/([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})/i', $emailList, $emailMatches)) {
+            foreach ($emailMatches[1] as $email) {
+                $email = strtolower(trim($email));
+                if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $emails[] = $email;
+                }
             }
+        }
+        
+        // If regex didn't find anything, try splitting by common delimiters
+        if (empty($emails)) {
+            // Remove any angle brackets first (but keep the email inside)
+            $emailList = preg_replace('/<([^>]+)>/', '$1', $emailList);
             
-            // Extract email using regex
-            if (preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/i', $part, $emailMatches)) {
-                foreach ($emailMatches[0] as $email) {
-                    $email = strtolower(trim($email));
-                    if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        $emails[] = $email;
+            // Split by common delimiters
+            $parts = preg_split('/[,;]\s*/', $emailList);
+            
+            foreach ($parts as $part) {
+                $part = trim($part);
+                if (empty($part)) {
+                    continue;
+                }
+                
+                // Extract email using regex
+                if (preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/i', $part, $emailMatches)) {
+                    foreach ($emailMatches[0] as $email) {
+                        $email = strtolower(trim($email));
+                        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                            $emails[] = $email;
+                        }
                     }
                 }
             }

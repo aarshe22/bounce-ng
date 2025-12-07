@@ -717,61 +717,6 @@ async function resetDatabase() {
     }
 }
 
-// Reset database - clears all data except users, relays, and mailboxes
-async function resetDatabase() {
-    if (!confirm('Are you sure you want to reset the database? This will delete ALL bounces, notifications, domains, and events. Users, relay providers, and mailbox configurations will be preserved.')) {
-        return;
-    }
-    
-    if (!confirm('This action cannot be undone. Are you absolutely sure?')) {
-        return;
-    }
-    
-    const btn = document.querySelector('button[onclick="resetDatabase()"]');
-    const originalText = btn ? btn.innerHTML : '';
-    
-    try {
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
-        }
-        
-        addEventLogMessage('warning', 'Resetting database...');
-        
-        const response = await fetch('/api/mailboxes.php?action=reset-database', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        if (data.success) {
-            addEventLogMessage('success', 'Database reset successfully');
-            // Reload all data
-            await Promise.all([
-                loadDashboard(),
-                loadMailboxes(),
-                loadEventLog(),
-                loadNotificationQueue()
-            ]);
-        } else {
-            throw new Error(data.error || 'Unknown error');
-        }
-    } catch (error) {
-        console.error('Error resetting database:', error);
-        addEventLogMessage('error', 'Database reset failed: ' + error.message);
-        alert('Error: ' + error.message);
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    }
-}
-
 // Retroactively queue notifications from existing bounces
 async function retroactiveQueue() {
     const btn = document.querySelector('button[onclick="retroactiveQueue()"]');

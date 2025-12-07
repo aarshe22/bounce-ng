@@ -293,12 +293,21 @@ class MailboxMonitor {
             }
             
             // Also try getting UIDs which might work even if message count doesn't
+            // This is critical for custom folders where imap_num_msg might return 0
             if ($messageCount == 0) {
                 $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
                 if ($uids && is_array($uids) && count($uids) > 0) {
                     $uidCount = count($uids);
                     $messageCount = $uidCount;
-                    $this->eventLogger->log('info', "Message count from imap_search UIDs: {$messageCount}", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "Message count from imap_search UIDs: {$messageCount} (imap_num_msg returned 0 but UIDs found)", null, $this->mailbox['id']);
+                } else {
+                    // Try without SE_UID flag as fallback
+                    $uids = @\imap_search($this->imapConnection, 'ALL');
+                    if ($uids && is_array($uids) && count($uids) > 0) {
+                        $uidCount = count($uids);
+                        $messageCount = $uidCount;
+                        $this->eventLogger->log('info', "Message count from imap_search (no UID flag): {$messageCount}", null, $this->mailbox['id']);
+                    }
                 }
             }
             
@@ -377,10 +386,27 @@ class MailboxMonitor {
         $this->eventLogger->log('info', "Entering processing loop for {$messageCount} messages", null, $this->mailbox['id']);
 
         // Get all message UIDs first to avoid issues with message numbers shifting when messages are moved
+        // Try with SE_UID first, then without if that fails
         $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
-        if (!$uids || !is_array($uids)) {
-            $this->eventLogger->log('warning', "Could not get message UIDs, falling back to sequential processing", null, $this->mailbox['id']);
-            $uids = range(1, $messageCount);
+        if (!$uids || !is_array($uids) || empty($uids)) {
+            // Fallback: try without SE_UID flag
+            $uids = @\imap_search($this->imapConnection, 'ALL');
+            if ($uids && is_array($uids) && !empty($uids)) {
+                $this->eventLogger->log('info', "Got message numbers (not UIDs) from imap_search: " . count($uids), null, $this->mailbox['id']);
+            } else {
+                // Last resort: use sequential numbers
+                $this->eventLogger->log('warning', "Could not get message UIDs, falling back to sequential processing", null, $this->mailbox['id']);
+                $uids = $messageCount > 0 ? range(1, $messageCount) : [];
+            }
+        }
+        
+        if (empty($uids)) {
+            $this->eventLogger->log('warning', "No message UIDs found to process", null, $this->mailbox['id']);
+            return [
+                'processed' => 0,
+                'skipped' => 0,
+                'problems' => 0
+            ];
         }
         
         $this->eventLogger->log('info', "Processing " . count($uids) . " messages using UIDs", null, $this->mailbox['id']);
