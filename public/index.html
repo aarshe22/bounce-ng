@@ -18,6 +18,9 @@
                     <button type="button" class="btn btn-sm btn-outline-light active" id="viewDashboardBtn" onclick="switchView('dashboard')">
                         <i class="bi bi-speedometer2"></i> Dashboard
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewNotificationsBtn" onclick="switchView('notifications')">
+                        <i class="bi bi-envelope"></i> Notification Queue
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-light" id="viewEventsBtn" onclick="switchView('events')">
                         <i class="bi bi-list-ul"></i> Event Log
                     </button>
@@ -103,6 +106,20 @@
 
                                 <hr>
 
+                                <h6>Notification Template</h6>
+                                <div class="mb-3">
+                                    <label class="form-label">Email Message Body</label>
+                                    <textarea class="form-control" id="notificationTemplateBody" rows="8" placeholder="Enter notification email body template..."></textarea>
+                                    <small class="text-muted">
+                                        Available placeholders: {{original_to}}, {{original_cc}}, {{original_subject}}, {{bounce_date}}, {{smtp_code}}, {{smtp_reason}}, {{recipient_domain}}, {{recommendation}}
+                                    </small>
+                                    <button class="btn btn-sm btn-primary mt-2" onclick="saveNotificationTemplate()">
+                                        <i class="bi bi-save"></i> Save Template
+                                    </button>
+                                </div>
+
+                                <hr>
+
                                 <h6>Relay Providers</h6>
                                 <div class="mb-3">
                                     <button class="btn btn-sm btn-primary w-100" onclick="showAddRelayProviderModal()">
@@ -130,7 +147,7 @@
                         <div class="col-md-6 mb-3">
                             <div class="card bg-primary text-white">
                                 <div class="card-body">
-                                    <h6>Top Domains</h6>
+                                    <h6>Domains</h6>
                                     <div id="topDomains"></div>
                                 </div>
                             </div>
@@ -164,6 +181,37 @@
                             </div>
                         </div>
                         <div id="notificationQueue"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Queue View -->
+        <div id="viewNotifications" class="view-container" style="display: none;">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-envelope"></i> Notification Queue</h5>
+                </div>
+                <div class="card-body overflow-auto">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0">Pending Notifications</h6>
+                            <div class="d-flex gap-2">
+                                <input type="text" class="form-control form-control-sm" id="notificationQueueFilterView" placeholder="Filter..." style="width: 200px;">
+                                <select class="form-select form-select-sm" id="notificationQueueSortView" style="width: 150px;">
+                                    <option value="created_desc">Newest First</option>
+                                    <option value="created_asc">Oldest First</option>
+                                    <option value="recipient_asc">Recipient A-Z</option>
+                                    <option value="recipient_desc">Recipient Z-A</option>
+                                    <option value="domain_asc">Domain A-Z</option>
+                                    <option value="domain_desc">Domain Z-A</option>
+                                </select>
+                                <button class="btn btn-sm btn-primary" id="notificationQueueApplyBtnView" onclick="applyNotificationQueueFilters()">
+                                    <i class="bi bi-funnel"></i> Apply
+                                </button>
+                            </div>
+                        </div>
+                        <div id="notificationQueueView"></div>
                     </div>
                 </div>
             </div>

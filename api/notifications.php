@@ -21,9 +21,10 @@ try {
             if ($path === 'queue') {
                 $status = $_GET['status'] ?? 'pending';
                 $stmt = $db->prepare("
-                    SELECT nq.*, b.original_to, b.recipient_domain, b.smtp_code
+                    SELECT nq.*, b.original_to, b.recipient_domain, b.smtp_code, sc.description as smtp_description, sc.recommendation as smtp_recommendation
                     FROM notifications_queue nq
                     JOIN bounces b ON nq.bounce_id = b.id
+                    LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
                     WHERE nq.status = ?
                     ORDER BY nq.created_at ASC
                 ");

@@ -43,6 +43,9 @@ try {
     $stmt = $db->query("SELECT COUNT(*) as total FROM mailboxes WHERE is_enabled = 1");
     $activeMailboxes = $stmt->fetch()['total'];
 
+    $stmt = $db->query("SELECT COUNT(*) as total FROM notifications_queue WHERE status = 'pending'");
+    $queuedNotifications = $stmt->fetch()['total'];
+
     echo json_encode([
         'success' => true,
         'data' => [
@@ -51,7 +54,8 @@ try {
             'stats' => [
                 'totalBounces' => $totalBounces,
                 'totalDomains' => $totalDomains,
-                'activeMailboxes' => $activeMailboxes
+                'activeMailboxes' => $activeMailboxes,
+                'queuedNotifications' => $queuedNotifications
             ]
         ]
     ]);

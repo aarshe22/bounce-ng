@@ -12,6 +12,7 @@ let eventLogAllEvents = []; // Store all events for client-side pagination
 document.addEventListener('DOMContentLoaded', function() {
     loadUserInfo();
     loadSettings();
+    loadNotificationTemplate();
     loadRelayProviders();
     loadMailboxes();
     loadDashboard();
@@ -354,6 +355,51 @@ document.getElementById('notificationModeToggle').addEventListener('change', fun
         body: JSON.stringify({ key: 'notification_mode', value: this.checked ? 'realtime' : 'queue' })
     });
 });
+
+// Notification Template
+async function loadNotificationTemplate() {
+    try {
+        const response = await fetch('/api/settings.php?action=template');
+        const data = await response.json();
+        if (data.success && data.data) {
+            document.getElementById('notificationTemplateBody').value = data.data.body || '';
+        }
+    } catch (error) {
+        console.error('Error loading notification template:', error);
+    }
+}
+
+async function saveNotificationTemplate() {
+    const body = document.getElementById('notificationTemplateBody').value;
+    
+    if (!body.trim()) {
+        alert('Please enter a notification message body');
+        return;
+    }
+    
+    try {
+        // Get current subject (use default if not available)
+        const templateResponse = await fetch('/api/settings.php?action=template');
+        const templateData = await templateResponse.json();
+        const subject = templateData.success && templateData.data ? templateData.data.subject : 'Email Bounce Notification';
+        
+        const response = await fetch('/api/settings.php?action=template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject: subject, body: body })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('Notification template saved successfully');
+        } else {
+            throw new Error(data.error || 'Failed to save template');
+        }
+    } catch (error) {
+        console.error('Error saving notification template:', error);
+        alert('Error saving template: ' + error.message);
+    }
+}
 
 // Mailboxes
 async function loadMailboxes() {
@@ -1069,7 +1115,8 @@ function displayDashboard(data) {
 
 function updateHeaderStats(stats) {
     document.getElementById('headerStats').innerHTML = `
-        <span class="badge bg-info me-2">Bounces: ${stats.totalBounces}</span>
+        <span class="badge bg-info me-2">Total Bounces: ${stats.totalBounces}</span>
+        <span class="badge bg-warning me-2">Queued Notifications: ${stats.queuedNotifications || 0}</span>
         <span class="badge bg-primary me-2">Domains: ${stats.totalDomains}</span>
         <span class="badge bg-success">Mailboxes: ${stats.activeMailboxes}</span>
     `;
@@ -1150,17 +1197,27 @@ function displayNotificationQueue(notifications) {
 }
 
 function applyNotificationQueueFilters() {
-    const container = document.getElementById('notificationQueue');
+    // Try both containers (dashboard and notifications view)
+    const container = document.getElementById('notificationQueue') || document.getElementById('notificationQueueView');
     if (!container) return;
     
     if (allNotifications.length === 0) {
         container.innerHTML = '<p class="text-muted">No pending notifications</p>';
+        // Also update the other container if it exists
+        const otherContainer = document.getElementById('notificationQueue') ? document.getElementById('notificationQueueView') : document.getElementById('notificationQueue');
+        if (otherContainer) {
+            otherContainer.innerHTML = '<p class="text-muted">No pending notifications</p>';
+        }
         return;
     }
     
+    // Get the correct filter and sort elements (check both views)
+    const filterInput = document.getElementById('notificationQueueFilter') || document.getElementById('notificationQueueFilterView');
+    const sortSelect = document.getElementById('notificationQueueSort') || document.getElementById('notificationQueueSortView');
+    
     // Get filter and sort values
-    const filterText = document.getElementById('notificationQueueFilter')?.value.toLowerCase() || '';
-    const sortValue = document.getElementById('notificationQueueSort')?.value || 'created_desc';
+    const filterText = filterInput?.value.toLowerCase() || '';
+    const sortValue = sortSelect?.value || 'created_desc';
     
     // Filter notifications
     let filtered = allNotifications.filter(n => {
@@ -1193,8 +1250,8 @@ function applyNotificationQueueFilters() {
         }
     });
     
-    // Display filtered and sorted notifications
-    container.innerHTML = `
+    // Display filtered and sorted notifications (update both containers if they exist)
+    const htmlContent = `
         <div class="table-responsive">
             <table class="table table-sm">
                 <thead>
@@ -1215,7 +1272,10 @@ function applyNotificationQueueFilters() {
                             <td>${n.recipient_email}</td>
                             <td>${n.original_to}</td>
                             <td>${n.recipient_domain}</td>
-                            <td>${n.smtp_code || 'N/A'}</td>
+                            <td>
+                                ${n.smtp_code || 'N/A'}
+                                ${n.smtp_description ? `<br><small class="text-muted">${n.smtp_description}</small>` : ''}
+                            </td>
                             <td>${new Date(n.created_at).toLocaleString()}</td>
                         </tr>
                     `).join('')}
@@ -1230,7 +1290,14 @@ function applyNotificationQueueFilters() {
         </div>
     `;
     
-    // Select all checkbox
+    // Update both containers if they exist
+    container.innerHTML = htmlContent;
+    const otherContainer = document.getElementById('notificationQueue') === container ? document.getElementById('notificationQueueView') : document.getElementById('notificationQueue');
+    if (otherContainer) {
+        otherContainer.innerHTML = htmlContent;
+    }
+    
+    // Select all checkbox (attach to both if they exist)
     const selectAll = document.getElementById('selectAllNotifications');
     if (selectAll) {
         selectAll.addEventListener('change', function(e) {
