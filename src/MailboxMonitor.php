@@ -289,12 +289,21 @@ class MailboxMonitor {
         error_log("MailboxMonitor: RIGHT BEFORE if statement. isZero = " . var_export($isZero, true));
         
         // Force test - this should always execute
-        $this->eventLogger->log('debug', "TEST: About to evaluate if condition", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: TEST: About to evaluate if condition");
+        $this->eventLogger->log('debug', "TEST: About to evaluate if condition. messageCount={$messageCount}, isZero=" . var_export($isZero, true), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: TEST: About to evaluate if condition. messageCount={$messageCount}, isZero=" . var_export($isZero, true));
         
-        if ($isZero) {
-            $this->eventLogger->log('debug', "TEST: If condition was TRUE", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: TEST: If condition was TRUE");
+        // Test the condition directly
+        $conditionResult = (bool)$isZero;
+        $this->eventLogger->log('debug', "TEST: Condition evaluated to: " . var_export($conditionResult, true), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: TEST: Condition evaluated to: " . var_export($conditionResult, true));
+        
+        // CRITICAL: If messageCount > 0, skip the entire if block and go straight to processing
+        if ($messageCount > 0) {
+            $this->eventLogger->log('debug', "BYPASS: messageCount > 0, skipping fallback methods block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: BYPASS: messageCount > 0, skipping fallback methods block");
+        } elseif ($isZero) {
+            $this->eventLogger->log('debug', "TEST: If condition was TRUE - entered if block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: TEST: If condition was TRUE - entered if block");
             $this->eventLogger->log('debug', "ENTERED if block", null, $this->mailbox['id']);
             error_log("MailboxMonitor: ENTERED if block");
             $this->eventLogger->log('debug', "INSIDE if (messageCount == 0) block - messageCount is 0, trying fallback methods", null, $this->mailbox['id']);
@@ -414,13 +423,16 @@ class MailboxMonitor {
                 }
             }
         } else {
-            $this->eventLogger->log('debug', "TEST: If condition was FALSE, entering else", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: TEST: If condition was FALSE, entering else");
+            $this->eventLogger->log('debug', "TEST: If condition was FALSE - entered else block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: TEST: If condition was FALSE - entered else block");
             $this->eventLogger->log('debug', "ENTERED else block - isZero was false", null, $this->mailbox['id']);
             error_log("MailboxMonitor: ENTERED else block - isZero was false");
             $this->eventLogger->log('debug', "ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0", null, $this->mailbox['id']);
             error_log("MailboxMonitor: ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0");
         }
+        
+        $this->eventLogger->log('debug', "AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}");
         
         $this->eventLogger->log('debug', "AFTER if/else - Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}", null, $this->mailbox['id']);
         error_log("MailboxMonitor: AFTER if/else - Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}");
