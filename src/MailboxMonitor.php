@@ -178,22 +178,51 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "About to select folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        // Select the folder using the actual mailbox path - try imap_select first (more reliable)
-        $result = @imap_select($this->imapConnection, $actualMailboxPath);
-        $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false'), null, $this->mailbox['id']);
+        // Verify connection is still valid before selecting
+        if (!$this->imapConnection) {
+            throw new Exception("IMAP connection is null before folder selection");
+        }
         
-        if (!$result) {
+        // Check if connection is still alive
+        $pingResult = @imap_ping($this->imapConnection);
+        if (!$pingResult) {
             $error = imap_last_error();
-            $this->eventLogger->log('warning', "imap_select failed: {$error}, trying imap_reopen", null, $this->mailbox['id']);
-            // Fallback to imap_reopen
-            $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
-            $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false'), null, $this->mailbox['id']);
+            $this->eventLogger->log('error', "IMAP connection is not alive before selection: {$error}", null, $this->mailbox['id']);
+            throw new Exception("IMAP connection is not alive: {$error}");
+        }
+        
+        // Select the folder using the actual mailbox path - try imap_select first (more reliable)
+        $result = false;
+        $error = null;
+        
+        try {
+            $result = @imap_select($this->imapConnection, $actualMailboxPath);
+            $error = imap_last_error();
+            $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
+        } catch (Exception $e) {
+            $error = $e->getMessage();
+            $this->eventLogger->log('error', "imap_select threw exception: {$error}", null, $this->mailbox['id']);
         }
         
         if (!$result) {
-            $error = imap_last_error();
-            $this->eventLogger->log('error', "Failed to select folder '{$actualMailboxPath}': {$error}", null, $this->mailbox['id']);
-            throw new Exception("Failed to select folder: {$error}");
+            if ($error) {
+                $this->eventLogger->log('warning', "imap_select failed: {$error}, trying imap_reopen", null, $this->mailbox['id']);
+            }
+            // Fallback to imap_reopen
+            try {
+                $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
+                $error = imap_last_error();
+                $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
+            } catch (Exception $e) {
+                $error = $e->getMessage();
+                $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
+            }
+        }
+        
+        if (!$result) {
+            $finalError = $error ?: imap_last_error() ?: 'Unknown error';
+            $this->eventLogger->log('error', "Failed to select folder '{$actualMailboxPath}': {$finalError}", null, $this->mailbox['id']);
+            throw new Exception("Failed to select folder: {$finalError}");
         }
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
@@ -498,7 +527,16 @@ class MailboxMonitor {
 
     public function disconnect() {
         if ($this->imapConnection) {
-            imap_close($this->imapConnection);
+            try {
+                // Check if connection is still valid before closing
+                @imap_ping($this->imapConnection);
+                @imap_close($this->imapConnection);
+            } catch (ValueError $e) {
+                // Connection already closed, ignore
+            } catch (Exception $e) {
+                // Connection error, ignore
+            }
+            $this->imapConnection = null;
         }
     }
 
