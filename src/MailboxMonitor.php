@@ -376,21 +376,32 @@ class MailboxMonitor {
 
         $this->eventLogger->log('info', "Entering processing loop for {$messageCount} messages", null, $this->mailbox['id']);
 
-        // Process all messages (1 to messageCount) regardless of read/unread status
-        for ($i = 1; $i <= $messageCount; $i++) {
-            $this->eventLogger->log('debug', "Processing message {$i} of {$messageCount}", null, $this->mailbox['id']);
+        // Get all message UIDs first to avoid issues with message numbers shifting when messages are moved
+        $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+        if (!$uids || !is_array($uids)) {
+            $this->eventLogger->log('warning', "Could not get message UIDs, falling back to sequential processing", null, $this->mailbox['id']);
+            $uids = range(1, $messageCount);
+        }
+        
+        $this->eventLogger->log('info', "Processing " . count($uids) . " messages using UIDs", null, $this->mailbox['id']);
+        
+        // Process messages in reverse order to avoid number shifting issues
+        $uids = array_reverse($uids);
+        
+        foreach ($uids as $uid) {
+            $this->eventLogger->log('debug', "Processing message UID {$uid}", null, $this->mailbox['id']);
             try {
-                // Fetch message using message number (not UID) - processes all messages
-                $header = @\imap_headerinfo($this->imapConnection, $i);
+                // Fetch message using UID to avoid number shifting issues
+                $header = @\imap_headerinfo($this->imapConnection, $uid, FT_UID);
                 if (!$header) {
-                    $this->eventLogger->log('warning', "Could not fetch header for message {$i}, skipping", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Could not fetch header for message UID {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
-                $body = @\imap_body($this->imapConnection, $i);
-                $rawHeader = @\imap_fetchheader($this->imapConnection, $i);
+                $body = @\imap_body($this->imapConnection, $uid, FT_UID);
+                $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
                 if (!$rawHeader) {
-                    $this->eventLogger->log('warning', "Could not fetch raw header for message {$i}, skipping", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Could not fetch raw header for message UID {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
@@ -400,9 +411,9 @@ class MailboxMonitor {
 
                 if (!$parser->isBounce()) {
                     // Not a bounce, move to skipped
-                    $this->moveMessage($i, $skipped);
+                    $this->moveMessage($uid, $skipped, true); // true = use UID
                     $skippedCount++;
-                    $this->eventLogger->log('info', "Message {$i} is not a bounce, moved to skipped", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "Message UID {$uid} is not a bounce, moved to skipped", null, $this->mailbox['id']);
                     continue;
                 }
 
@@ -411,11 +422,13 @@ class MailboxMonitor {
                 $originalCc = $parser->getOriginalCc();
                 $recipientDomain = $parser->getRecipientDomain();
 
+                $this->eventLogger->log('debug', "Extracted bounce data - To: {$originalTo}, CC count: " . count($originalCc ?? []) . ", Domain: {$recipientDomain}", null, $this->mailbox['id']);
+
                 if (!$originalTo || !$recipientDomain) {
                     // Cannot parse, move to problem
-                    $this->moveMessage($i, $problem);
+                    $this->moveMessage($uid, $problem, true); // true = use UID
                     $problemCount++;
-                    $this->eventLogger->log('warning', "Cannot parse message {$i}: missing original_to or domain", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Cannot parse message UID {$uid}: missing original_to or domain", null, $this->mailbox['id']);
                     continue;
                 }
 
@@ -431,16 +444,16 @@ class MailboxMonitor {
                 $this->queueNotifications($bounceId, $originalCc);
 
                 // Move to processed
-                $this->moveMessage($i, $processed);
+                $this->moveMessage($uid, $processed, true); // true = use UID
                 $processedCount++;
 
-                $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore})", null, $this->mailbox['id'], $bounceId);
+                $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: " . count($originalCc ?? [])) . " addresses)", null, $this->mailbox['id'], $bounceId);
 
             } catch (Exception $e) {
                 // Error processing, move to problem
-                $this->moveMessage($i, $problem);
+                $this->moveMessage($uid, $problem, true); // true = use UID
                 $problemCount++;
-                $this->eventLogger->log('error', "Error processing message {$i}: {$e->getMessage()}", null, $this->mailbox['id']);
+                $this->eventLogger->log('error', "Error processing message UID {$uid}: {$e->getMessage()}", null, $this->mailbox['id']);
             }
         }
 
@@ -522,7 +535,7 @@ class MailboxMonitor {
         $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}", null, $this->mailbox['id']);
     }
 
-    private function moveMessage($messageNum, $folder) {
+    private function moveMessage($messageNum, $folder, $useUid = false) {
         // Build connection string for folder
         $server = $this->mailbox['imap_server'];
         $port = $this->mailbox['imap_port'];
@@ -593,11 +606,15 @@ class MailboxMonitor {
         $result = false;
         $lastError = null;
         
+        // Determine flags for copy/delete operations
+        $copyFlags = $useUid ? CP_UID : 0;
+        $deleteFlags = $useUid ? FT_UID : 0;
+        
         foreach ($pathsToTry as $pathToTry) {
-            $this->eventLogger->log('debug', "Attempting to copy message {$messageNum} to path: '{$pathToTry}'", null, $this->mailbox['id']);
+            $this->eventLogger->log('debug', "Attempting to copy message {$messageNum} to path: '{$pathToTry}' (UID mode: " . ($useUid ? 'yes' : 'no') . ")", null, $this->mailbox['id']);
             
             // Copy message to destination folder
-            $result = @\imap_mail_copy($this->imapConnection, $messageNum, $pathToTry);
+            $result = @\imap_mail_copy($this->imapConnection, $messageNum, $pathToTry, $copyFlags);
             
             if ($result) {
                 $this->eventLogger->log('debug', "Successfully copied message {$messageNum} using path: '{$pathToTry}'", null, $this->mailbox['id']);
@@ -612,7 +629,7 @@ class MailboxMonitor {
         
         if ($result) {
             // Delete from source
-            @\imap_delete($this->imapConnection, $messageNum);
+            @\imap_delete($this->imapConnection, $messageNum, $deleteFlags);
             // Expunge
             @\imap_expunge($this->imapConnection);
             $this->eventLogger->log('debug', "Successfully moved message {$messageNum} to folder '{$folder}'", null, $this->mailbox['id']);

@@ -80,17 +80,114 @@ class EmailParser {
     }
 
     private function parseBody($body) {
-        // Try to extract original email information from body
-        $this->extractOriginalEmailInfo($body);
+        // Decode body if it's MIME encoded (base64, quoted-printable, etc.)
+        $decodedBody = $this->decodeBody($body);
         
-        // Extract SMTP codes
-        $this->extractSmtpCodes($body);
+        // Try to extract original email information from decoded body
+        $this->extractOriginalEmailInfo($decodedBody);
+        
+        // Extract SMTP codes from decoded body
+        $this->extractSmtpCodes($decodedBody);
         
         // Calculate spam score from headers
         $this->calculateSpamScore();
         
         // Determine deliverability status
         $this->determineDeliverabilityStatus();
+    }
+    
+    private function decodeBody($body) {
+        // Check if body is MIME multipart
+        if (preg_match('/Content-Type:\s*multipart\/([^;]+)/i', $this->headers, $matches)) {
+            return $this->parseMultipartBody($body);
+        }
+        
+        // Check for Content-Transfer-Encoding
+        $encoding = null;
+        if (preg_match('/Content-Transfer-Encoding:\s*([^\r\n]+)/i', $this->headers, $matches)) {
+            $encoding = strtolower(trim($matches[1]));
+        }
+        
+        // Decode based on encoding
+        if ($encoding === 'base64') {
+            $decoded = base64_decode($body, true);
+            if ($decoded !== false) {
+                $body = $decoded;
+            }
+        } elseif ($encoding === 'quoted-printable') {
+            $body = quoted_printable_decode($body);
+        }
+        
+        // Check for charset and convert if needed
+        if (preg_match('/charset=([^;\s]+)/i', $this->headers, $matches)) {
+            $charset = strtolower(trim($matches[1]));
+            if ($charset !== 'utf-8' && function_exists('mb_convert_encoding')) {
+                $body = mb_convert_encoding($body, 'UTF-8', $charset);
+            }
+        }
+        
+        return $body;
+    }
+    
+    private function parseMultipartBody($body) {
+        // Extract boundary
+        if (!preg_match('/boundary=([^;\r\n]+)/i', $this->headers, $matches)) {
+            return $body; // Can't parse without boundary
+        }
+        
+        $boundary = trim($matches[1], '"');
+        $parts = explode('--' . $boundary, $body);
+        $decodedParts = [];
+        
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if (empty($part) || $part === '--') {
+                continue; // Skip empty parts and final boundary
+            }
+            
+            // Split part header and body
+            $partParts = preg_split("/\r?\n\r?\n/", $part, 2);
+            $partHeader = $partParts[0] ?? '';
+            $partBody = $partParts[1] ?? '';
+            
+            // Check Content-Type
+            $contentType = '';
+            if (preg_match('/Content-Type:\s*([^;\r\n]+)/i', $partHeader, $ctMatches)) {
+                $contentType = strtolower(trim($ctMatches[1]));
+            }
+            
+            // Check encoding
+            $encoding = '';
+            if (preg_match('/Content-Transfer-Encoding:\s*([^\r\n]+)/i', $partHeader, $encMatches)) {
+                $encoding = strtolower(trim($encMatches[1]));
+            }
+            
+            // Decode part body
+            if ($encoding === 'base64') {
+                $partBody = base64_decode($partBody, true) ?: $partBody;
+            } elseif ($encoding === 'quoted-printable') {
+                $partBody = quoted_printable_decode($partBody);
+            }
+            
+            // Check charset
+            $charset = 'utf-8';
+            if (preg_match('/charset=([^;\s]+)/i', $partHeader, $csMatches)) {
+                $charset = strtolower(trim($csMatches[1]));
+            }
+            
+            // Convert charset if needed
+            if ($charset !== 'utf-8' && function_exists('mb_convert_encoding')) {
+                $partBody = mb_convert_encoding($partBody, 'UTF-8', $charset);
+            }
+            
+            // Prefer text/plain, but collect all parts
+            if (strpos($contentType, 'text/plain') !== false || empty($decodedParts)) {
+                $decodedParts[] = $partBody;
+            }
+        }
+        
+        // Return concatenated decoded parts
+        return implode("\n\n", $decodedParts);
     }
 
     private function extractOriginalEmailInfo($body) {
@@ -128,20 +225,43 @@ class EmailParser {
 
         $this->parsedData['original_to'] = $originalTo;
 
-        // Extract original CC addresses
+        // Extract original CC addresses - try multiple patterns and locations
         $ccAddresses = [];
-        if (preg_match('/X-Original-CC:\s*([^\r\n]+)/i', $body, $matches)) {
-            $ccList = $matches[1];
-            $ccAddresses = $this->parseEmailList($ccList);
+        
+        // Pattern 1: X-Original-CC in body
+        $patterns = [
+            '/X-Original-CC:\s*([^\r\n]+)/i',
+            '/Original-CC:\s*([^\r\n]+)/i',
+            '/CC:\s*([^\r\n]+)/i',
+            '/Cc:\s*([^\r\n]+)/i',
+            '/Resent-CC:\s*([^\r\n]+)/i',
+            '/X-Envelope-CC:\s*([^\r\n]+)/i',
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match_all($pattern, $body, $matches)) {
+                foreach ($matches[1] as $ccList) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
         }
         
-        // Also check for CC in Return-Path or other headers
-        if (empty($ccAddresses) && isset($this->parsedData['x-original-cc'])) {
-            $ccList = is_array($this->parsedData['x-original-cc']) 
-                ? $this->parsedData['x-original-cc'][0] 
-                : $this->parsedData['x-original-cc'];
-            $ccAddresses = $this->parseEmailList($ccList);
+        // Pattern 2: Check headers
+        $headerFields = ['x-original-cc', 'original-cc', 'cc', 'resent-cc', 'x-envelope-cc'];
+        foreach ($headerFields as $field) {
+            if (isset($this->parsedData[$field])) {
+                $ccList = is_array($this->parsedData[$field]) 
+                    ? $this->parsedData[$field][0] 
+                    : $this->parsedData[$field];
+                $parsed = $this->parseEmailList($ccList);
+                $ccAddresses = array_merge($ccAddresses, $parsed);
+            }
         }
+        
+        // Remove duplicates and empty values
+        $ccAddresses = array_unique(array_filter($ccAddresses));
+        $ccAddresses = array_values($ccAddresses); // Re-index
 
         $this->parsedData['original_cc'] = $ccAddresses;
 
