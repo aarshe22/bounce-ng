@@ -22,12 +22,13 @@ try {
     ");
     $domains = $stmt->fetchAll();
 
-    // Get top SMTP codes
+    // Get top SMTP codes with descriptions
     $stmt = $db->query("
-        SELECT smtp_code, COUNT(*) as count
-        FROM bounces
-        WHERE smtp_code IS NOT NULL
-        GROUP BY smtp_code
+        SELECT b.smtp_code, COUNT(*) as count, sc.description, sc.recommendation
+        FROM bounces b
+        LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
+        WHERE b.smtp_code IS NOT NULL
+        GROUP BY b.smtp_code, sc.description, sc.recommendation
         ORDER BY count DESC
         LIMIT 10
     ");

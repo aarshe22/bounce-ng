@@ -570,10 +570,14 @@ function displayDashboard(data) {
     data.smtpCodes.forEach(code => {
         const item = document.createElement('div');
         item.className = 'mb-2';
+        const description = code.description || 'No description available';
         item.innerHTML = `
-            <div class="d-flex justify-content-between">
-                <span>${code.smtp_code}</span>
-                <span class="badge bg-secondary">${code.count}</span>
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <div class="fw-bold">${code.smtp_code}</div>
+                    <small class="text-white-50">${description}</small>
+                </div>
+                <span class="badge bg-secondary ms-2">${code.count}</span>
             </div>
         `;
         codesContainer.appendChild(item);

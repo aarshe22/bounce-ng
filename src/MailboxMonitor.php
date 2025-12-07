@@ -120,24 +120,45 @@ class MailboxMonitor {
         }
         
         // Get the actual mailbox path from imap_list (more reliable than constructing it)
+        // Use comprehensive folder matching to support custom folders
         $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $actualMailboxPath = null;
+        
+        // Try multiple folder name variations to handle case sensitivity, encoding, and custom folders
         $folderVariations = [
             $inbox,
             strtoupper($inbox),
             strtolower($inbox),
+            ucfirst(strtolower($inbox)),
             'INBOX' . ($inbox !== 'INBOX' ? '/' . $inbox : ''),
+            // For custom folders, also try without INBOX prefix
+            str_replace('INBOX/', '', $inbox),
+            str_replace('INBOX\\', '', $inbox),
         ];
+        
+        // Remove duplicates and empty values
+        $folderVariations = array_unique(array_filter($folderVariations));
+        
+        $this->eventLogger->log('debug', "Looking for inbox folder: '{$inbox}'. Trying variations: " . implode(', ', $folderVariations), null, $this->mailbox['id']);
         
         // Find the actual mailbox path that matches our folder name
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
                 $folder = str_replace($connectionString, "", $mb);
                 $folderDecoded = \imap_utf7_decode($folder);
+                
+                // Try exact match first
+                if (strcasecmp($folderDecoded, $inbox) === 0 || $folderDecoded === $inbox) {
+                    $actualMailboxPath = $mb; // Use the full mailbox path from imap_list
+                    $this->eventLogger->log('info', "Found matching inbox folder (exact): '{$folderDecoded}' -> '{$mb}'", null, $this->mailbox['id']);
+                    break;
+                }
+                
+                // Try all variations
                 foreach ($folderVariations as $var) {
                     if (strcasecmp($folderDecoded, $var) === 0 || $folderDecoded === $var) {
                         $actualMailboxPath = $mb; // Use the full mailbox path from imap_list
-                        $this->eventLogger->log('info', "Found matching folder: '{$folderDecoded}' -> '{$mb}'", null, $this->mailbox['id']);
+                        $this->eventLogger->log('info', "Found matching inbox folder: '{$folderDecoded}' -> '{$mb}' (matched variation: '{$var}')", null, $this->mailbox['id']);
                         break 2;
                     }
                 }
@@ -155,8 +176,8 @@ class MailboxMonitor {
                 }
             }
             $foldersList = implode(', ', $availableFolders);
-            $this->eventLogger->log('error', "Folder '{$inbox}' not found. Available folders: {$foldersList}", null, $this->mailbox['id']);
-            throw new Exception("Folder '{$inbox}' not found. Available folders: {$foldersList}");
+            $this->eventLogger->log('error', "Inbox folder '{$inbox}' not found. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            throw new Exception("Inbox folder '{$inbox}' not found. Available folders: {$foldersList}");
         }
         
         $this->eventLogger->log('info', "About to get status for folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
@@ -499,24 +520,50 @@ class MailboxMonitor {
         }
         $connectionString .= "}";
         
-        // Get the actual mailbox path for the destination folder
+        // Get the actual mailbox path for the destination folder using the same robust logic as inbox selection
         $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $destMailboxPath = null;
+        
+        // Try multiple folder name variations to handle case sensitivity and encoding
+        $folderVariations = [
+            $folder,
+            strtoupper($folder),
+            strtolower($folder),
+            'INBOX' . ($folder !== 'INBOX' ? '/' . $folder : ''),
+        ];
         
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
                 $folderName = str_replace($connectionString, "", $mb);
                 $folderDecoded = \imap_utf7_decode($folderName);
-                if (strcasecmp($folderDecoded, $folder) === 0 || $folderDecoded === $folder) {
-                    $destMailboxPath = $mb;
-                    break;
+                
+                // Check against all variations
+                foreach ($folderVariations as $var) {
+                    if (strcasecmp($folderDecoded, $var) === 0 || $folderDecoded === $var) {
+                        $destMailboxPath = $mb; // Use the full mailbox path from imap_list
+                        $this->eventLogger->log('debug', "Found destination folder: '{$folderDecoded}' -> '{$mb}'", null, $this->mailbox['id']);
+                        break 2;
+                    }
                 }
             }
         }
         
         if (!$destMailboxPath) {
-            // Fallback to constructed path
+            // Log available folders for debugging
+            $availableFolders = [];
+            if ($allMailboxes) {
+                foreach ($allMailboxes as $mb) {
+                    $folderName = str_replace($connectionString, "", $mb);
+                    $folderDecoded = \imap_utf7_decode($folderName);
+                    $availableFolders[] = $folderDecoded;
+                }
+            }
+            $foldersList = implode(', ', $availableFolders);
+            $this->eventLogger->log('warning', "Destination folder '{$folder}' not found. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            
+            // Last resort: try constructed path
             $destMailboxPath = $connectionString . $folder;
+            $this->eventLogger->log('debug', "Using constructed path: '{$destMailboxPath}'", null, $this->mailbox['id']);
         }
         
         // Copy message to destination folder
@@ -527,9 +574,10 @@ class MailboxMonitor {
             @\imap_delete($this->imapConnection, $messageNum);
             // Expunge
             @\imap_expunge($this->imapConnection);
+            $this->eventLogger->log('debug', "Successfully moved message {$messageNum} to folder '{$folder}'", null, $this->mailbox['id']);
         } else {
             $error = \imap_last_error();
-            $this->eventLogger->log('warning', "Failed to move message to folder '{$folder}': {$error}", null, $this->mailbox['id']);
+            $this->eventLogger->log('warning', "Failed to move message {$messageNum} to folder '{$folder}' (path: '{$destMailboxPath}'): {$error}", null, $this->mailbox['id']);
         }
     }
 
