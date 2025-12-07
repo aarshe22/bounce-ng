@@ -269,6 +269,8 @@ class MailboxMonitor {
             }
         }
         
+        $this->eventLogger->log('debug', "After status check, messageCount = {$messageCount}", null, $this->mailbox['id']);
+        
         // If still 0, try imap_search as backup - this is the most reliable method
         if ($messageCount == 0) {
             // Clear any previous errors
@@ -389,8 +391,10 @@ class MailboxMonitor {
         
         // Log detailed info for debugging
         $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);
+        $this->eventLogger->log('debug', "About to check if messageCount == 0. Current value: {$messageCount}", null, $this->mailbox['id']);
         
         if ($messageCount == 0) {
+            $this->eventLogger->log('debug', "messageCount is 0, returning early", null, $this->mailbox['id']);
             // List all available folders and their message counts to help debug
             $availableFolders = [];
             if ($allMailboxes) {
@@ -408,6 +412,7 @@ class MailboxMonitor {
             $foldersList = implode(', ', $availableFolders);
             $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
             // Return early if no messages
+            $this->eventLogger->log('debug', "Returning early because messageCount is 0", null, $this->mailbox['id']);
             return [
                 'processed' => 0,
                 'skipped' => 0,
@@ -415,6 +420,7 @@ class MailboxMonitor {
             ];
         }
         
+        $this->eventLogger->log('info', "messageCount is {$messageCount}, proceeding to process messages", null, $this->mailbox['id']);
         $this->eventLogger->log('info', "Starting to process {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
 
         $processedCount = 0;
