@@ -242,21 +242,61 @@ class EmailParser {
             $charset = trim($charset, '"\'');
         }
         
-        // Convert charset if needed
+        // Validate and normalize charset before conversion
         if ($charset !== 'utf-8' && function_exists('mb_convert_encoding')) {
-            try {
-                // Try common charset aliases
-                $charsetMap = [
-                    'windows-1252' => 'ISO-8859-1',
-                    'iso-8859-1' => 'ISO-8859-1',
-                    'latin1' => 'ISO-8859-1',
-                ];
-                $actualCharset = $charsetMap[$charset] ?? $charset;
-                
-                $body = mb_convert_encoding($body, 'UTF-8', $actualCharset);
-            } catch (Exception $e) {
-                // Try with //IGNORE
-                $body = @mb_convert_encoding($body, 'UTF-8', $charset);
+            // List of valid encodings that mb_convert_encoding supports
+            $validEncodings = [
+                'iso-8859-1', 'iso-8859-2', 'iso-8859-3', 'iso-8859-4', 'iso-8859-5',
+                'iso-8859-6', 'iso-8859-7', 'iso-8859-8', 'iso-8859-9', 'iso-8859-10',
+                'iso-8859-13', 'iso-8859-14', 'iso-8859-15', 'iso-8859-16',
+                'windows-1250', 'windows-1251', 'windows-1252', 'windows-1253',
+                'windows-1254', 'windows-1255', 'windows-1256', 'windows-1257', 'windows-1258',
+                'us-ascii', 'ascii',
+                'utf-7', 'utf-8', 'utf-16', 'utf-16be', 'utf-16le', 'utf-32', 'utf-32be', 'utf-32le',
+                'euc-jp', 'sjis', 'eucjp-win', 'sjis-win', 'jis', 'iso-2022-jp',
+                'koi8-r', 'koi8-u',
+                'gb2312', 'gbk', 'gb18030', 'big5',
+                'latin1', 'latin2', 'latin3', 'latin4', 'latin5', 'latin6', 'latin7', 'latin8', 'latin9', 'latin10'
+            ];
+            
+            // Normalize charset name
+            $charset = str_replace(['_', '-'], '', $charset);
+            $normalizedCharset = null;
+            
+            // Try to find matching valid encoding
+            foreach ($validEncodings as $valid) {
+                $normalizedValid = str_replace(['_', '-'], '', $valid);
+                if ($charset === $normalizedValid || strpos($charset, $normalizedValid) !== false) {
+                    $normalizedCharset = $valid;
+                    break;
+                }
+            }
+            
+            // Common aliases mapping
+            $charsetMap = [
+                'windows1252' => 'windows-1252',
+                'iso88591' => 'ISO-8859-1',
+                'iso8859-1' => 'ISO-8859-1',
+                'latin1' => 'ISO-8859-1',
+                'usascii' => 'us-ascii',
+                'ascii' => 'us-ascii',
+            ];
+            
+            if (!$normalizedCharset && isset($charsetMap[$charset])) {
+                $normalizedCharset = $charsetMap[$charset];
+            }
+            
+            // Only attempt conversion if we have a valid charset
+            if ($normalizedCharset && $normalizedCharset !== 'utf-8') {
+                try {
+                    // Check if encoding is supported
+                    $supported = @mb_list_encodings();
+                    if ($supported && in_array(strtoupper($normalizedCharset), array_map('strtoupper', $supported))) {
+                        $body = mb_convert_encoding($body, 'UTF-8', $normalizedCharset);
+                    }
+                } catch (Exception $e) {
+                    // Silently fail - keep original body
+                }
             }
         }
         
