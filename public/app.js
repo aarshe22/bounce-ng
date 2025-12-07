@@ -889,11 +889,33 @@ function displayEventLog(events) {
     const container = document.getElementById('eventLog');
     container.innerHTML = '';
     
+    // Helper to format timestamp consistently
+    function formatTimestamp(timestamp) {
+        if (!timestamp) return 'N/A';
+        const date = new Date(timestamp);
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+            return timestamp; // Return raw value if invalid
+        }
+        // Format as: MM/DD/YYYY, HH:MM:SS AM/PM
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+    }
+    
     events.forEach(event => {
         const item = document.createElement('div');
         item.className = `event ${event.severity}`;
-        const time = new Date(event.created_at).toLocaleString();
-        item.innerHTML = `<span class="text-muted">[${time}]</span> <strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
+        const time = formatTimestamp(event.created_at);
+        // Also include the ID for debugging
+        const idDisplay = event.id ? `[ID:${event.id}]` : '';
+        item.innerHTML = `<span class="text-muted">[${time}] ${idDisplay}</span> <strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
         container.appendChild(item);
     });
 }

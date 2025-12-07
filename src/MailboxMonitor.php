@@ -459,6 +459,7 @@ class MailboxMonitor {
             error_log("MailboxMonitor: SECOND CHECK: messageCount is 0, returning early");
             // List all available folders and their message counts to help debug
             $availableFolders = [];
+            $foldersWithMessages = [];
             if ($allMailboxes) {
                 foreach ($allMailboxes as $mb) {
                     $folder = str_replace($connectionString, "", $mb);
@@ -469,10 +470,20 @@ class MailboxMonitor {
                     if ($folderMsgCount > 0 || $folder === $inbox) {
                         $availableFolders[] = "{$folder} ({$folderMsgCount} msgs)";
                     }
+                    if ($folderMsgCount > 0 && $folder !== $inbox) {
+                        $foldersWithMessages[] = $folder;
+                    }
                 }
             }
             $foldersList = implode(', ', $availableFolders);
             $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
+            
+            // Suggest folders with messages
+            if (!empty($foldersWithMessages)) {
+                $suggested = implode(', ', array_slice($foldersWithMessages, 0, 5));
+                $this->eventLogger->log('info', "TIP: To process messages, change the inbox folder to one with messages (e.g., {$suggested})", null, $this->mailbox['id']);
+            }
+            
             // Return early if no messages
             $this->eventLogger->log('debug', "Returning early because messageCount is 0", null, $this->mailbox['id']);
             $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Returning early.", null, $this->mailbox['id']);

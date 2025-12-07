@@ -143,7 +143,7 @@ class Database {
             mailbox_id INTEGER,
             bounce_id INTEGER,
             metadata TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at DATETIME DEFAULT (datetime('now', 'localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id),
             FOREIGN KEY (bounce_id) REFERENCES bounces(id)
