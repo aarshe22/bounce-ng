@@ -885,33 +885,23 @@ async function runProcessing() {
         // NO auto-refresh - user must manually refresh event log
         // This makes the SPA more robust and prevents interference with background processing
         
-        // Process all mailboxes - TRUE fire-and-forget
-        // Send requests and immediately continue - don't wait for ANY response
-        enabledMailboxes.forEach((mailbox) => {
-            addEventLogMessage('info', `Starting processing for mailbox: ${mailbox.name}...`);
-            
-            // TRUE fire-and-forget: send request, don't wait, don't handle response
-            // Processing happens server-side in background
-            fetch('/api/mailboxes.php?action=process', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mailbox_id: mailbox.id }),
-                // No signal, no timeout handling - just send and forget
-            })
-            .then(() => {
-                // Response received (or not) - doesn't matter, processing continues server-side
-                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
-            })
-            .catch(() => {
-                // Any error is fine - request was sent, processing continues server-side
-                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background (request sent)`);
-            });
-            
-            // Show message immediately - don't wait
-            addEventLogMessage('info', `✓ Processing ${mailbox.name} request sent (running in background)`);
+        // Call notify-cron.php to process all mailboxes and send notifications
+        addEventLogMessage('info', 'Starting processing for all enabled mailboxes...');
+        
+        // Fire-and-forget: send request, don't wait for response
+        fetch('/api/mailboxes.php?action=process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+        .then(() => {
+            addEventLogMessage('info', '✓ Processing started in background via cron script');
+        })
+        .catch(() => {
+            addEventLogMessage('info', '✓ Processing request sent (running in background)');
         });
         
-        addEventLogMessage('info', 'All processing requests sent. Watch event log for real-time progress...');
+        addEventLogMessage('info', 'Processing request sent. Watch event log for real-time progress...');
         
         // Keep button disabled - processing happens in background
         // Re-enable after a short delay (processing continues server-side)

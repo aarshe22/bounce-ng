@@ -40,6 +40,7 @@ try {
         case 'POST':
             $data = json_decode(file_get_contents('php://input'), true);
             if ($path === 'send' && isset($data['ids'])) {
+                // Send specific notification IDs (selected notifications)
                 $ids = $data['ids'];
                 if (!is_array($ids)) {
                     throw new Exception("Invalid IDs format");
@@ -72,6 +73,41 @@ try {
                 }
 
                 echo json_encode(['success' => true, 'data' => $results]);
+            } elseif ($path === 'send-all') {
+                // Send all pending notifications - call notify-cron.php with send_only parameter
+                header('Content-Type: application/json');
+                header('Connection: close');
+                
+                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Sending notifications in background']);
+                header('Content-Length: ' . strlen($response));
+                echo $response;
+                
+                // Flush and finish request
+                while (ob_get_level() > 0) {
+                    ob_end_flush();
+                }
+                flush();
+                
+                if (function_exists('fastcgi_finish_request')) {
+                    fastcgi_finish_request();
+                }
+                
+                // Set execution limits
+                set_time_limit(1800);
+                ini_set('max_execution_time', 1800);
+                ignore_user_abort(true);
+                
+                // Call notify-cron.php via HTTP with send_only parameter
+                $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+                $cronUrl = $baseUrl . '/notify-cron.php?send_only=1';
+                
+                // Make async HTTP request
+                $ch = curl_init($cronUrl);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 1);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+                curl_exec($ch);
+                curl_close($ch);
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);

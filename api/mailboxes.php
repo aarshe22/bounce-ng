@@ -235,95 +235,42 @@ try {
                     http_response_code(500);
                     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
-            } elseif ($path === 'process' && isset($data['mailbox_id'])) {
-                // CRITICAL: Send response IMMEDIATELY before ANY processing or database operations
-                // This is the key to background processing - client must disconnect first
-                
-                // Store mailbox_id for later use
-                $mailboxId = $data['mailbox_id'];
-                
-                // Disable ALL output buffering - must be absolute first
-                // Flush any existing buffers first, then disable
-                while (ob_get_level() > 0) {
-                    ob_end_flush();
-                }
-                
-                // Disable output buffering at PHP level
-                if (ini_get('output_buffering')) {
-                    ini_set('output_buffering', 'Off');
-                }
-                
-                // Send headers
+            } elseif ($path === 'process') {
+                // Call notify-cron.php for processing via HTTP
+                // This delegates to the centralized cron script
                 header('Content-Type: application/json');
                 header('Connection: close');
                 
-                // Prepare and send response IMMEDIATELY - before ANY other operations
                 $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started in background']);
                 header('Content-Length: ' . strlen($response));
                 echo $response;
                 
-                // Force immediate flush - critical for background processing
-                if (ob_get_level() > 0) {
+                // Flush and finish request
+                while (ob_get_level() > 0) {
                     ob_end_flush();
                 }
                 flush();
                 
-                // For FastCGI, finish request NOW - client disconnects, server continues
                 if (function_exists('fastcgi_finish_request')) {
                     fastcgi_finish_request();
-                    // Client is now disconnected - processing continues in background
                 }
                 
-                // NOW set execution limits (client already disconnected)
-                set_time_limit(1800); // 30 minutes
+                // Set execution limits
+                set_time_limit(1800);
                 ini_set('max_execution_time', 1800);
                 ignore_user_abort(true);
                 
-                // Start processing in background (client has already received response)
-                try {
-                    $monitor = new MailboxMonitor($mailboxId);
-                    $eventLogger = new EventLogger();
-                    $eventLogger->log('info', "Starting mailbox processing for mailbox ID: {$mailboxId}", $_SESSION['user_id'] ?? null, $mailboxId);
-                    $result = $monitor->processInbox();
-                    $monitor->disconnect();
-                    $eventLogger->log('info', "Mailbox processing completed successfully", $_SESSION['user_id'] ?? null, $mailboxId);
-                    
-                    // Send notifications if real-time mode (only if not using fastcgi_finish_request)
-                    if (!function_exists('fastcgi_finish_request')) {
-                        $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
-                        $settingsStmt->execute();
-                        $settings = $settingsStmt->fetch();
-                        $realTime = !$settings || $settings['value'] === 'realtime';
-                        
-                        if ($realTime) {
-                            $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
-                            $mailboxStmt->execute([$mailboxId]);
-                            $mailbox = $mailboxStmt->fetch();
-                            $relayProviderId = $mailbox['relay_provider_id'] ?? null;
-                            
-                            $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
-                            $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
-                            $testModeStmt->execute();
-                            $testMode = $testModeStmt->fetch();
-                            $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
-                            $overrideEmailStmt->execute();
-                            $overrideEmail = $overrideEmailStmt->fetch();
-                            
-                            $notificationSender->setTestMode(
-                                $testMode && $testMode['value'] === '1',
-                                $overrideEmail ? $overrideEmail['value'] : ''
-                            );
-                            $notificationSender->sendPendingNotifications(true);
-                        }
-                    }
-                } catch (Exception $e) {
-                    $errorMsg = $e->getMessage();
-                    error_log("Error processing mailbox: " . $errorMsg);
-                    $eventLogger = new EventLogger();
-                    $eventLogger->log('error', "Error processing mailbox: {$errorMsg}", $_SESSION['user_id'] ?? null, $mailboxId ?? null);
-                    // Don't send error response - client already disconnected
-                    exit;
-                }
+                // Call notify-cron.php via HTTP (it will handle web requests)
+                $baseUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+                $cronUrl = $baseUrl . '/notify-cron.php';
+                
+                // Make async HTTP request
+                $ch = curl_init($cronUrl);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 1);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+                curl_exec($ch);
+                curl_close($ch);
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);
