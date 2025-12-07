@@ -614,16 +614,34 @@ class EmailParser {
         if (empty($ccAddresses)) {
             // Log a sample of the search texts to help debug
             $sampleText = '';
+            $foundCc = false;
             foreach ($searchTexts as $name => $text) {
                 if (stripos($text, 'cc:') !== false || stripos($text, 'Cc:') !== false) {
-                    $sampleText = substr($text, max(0, stripos($text, 'cc:') - 100), 500);
+                    $foundCc = true;
+                    $pos = stripos($text, 'cc:');
+                    $sampleText = substr($text, max(0, $pos - 200), 600);
+                    error_log("EmailParser: Found 'cc:' in source '{$name}' at position {$pos}. Sample: " . substr($sampleText, 0, 300));
                     break;
                 }
             }
-            if (empty($sampleText)) {
-                $sampleText = substr(implode("\n", array_slice($searchTexts, 0, 2)), 0, 500);
+            if (!$foundCc) {
+                // Check if we have any text that looks like email headers
+                $hasEmailHeaders = false;
+                foreach ($searchTexts as $name => $text) {
+                    if (stripos($text, 'From:') !== false && stripos($text, 'To:') !== false) {
+                        $hasEmailHeaders = true;
+                        $sampleText = substr($text, 0, 1000);
+                        error_log("EmailParser: No 'cc:' found but found email headers in '{$name}'. Sample: " . substr($sampleText, 0, 500));
+                        break;
+                    }
+                }
+                if (!$hasEmailHeaders) {
+                    $sampleText = substr(implode("\n", array_slice($searchTexts, 0, 2)), 0, 500);
+                    error_log("EmailParser: No CC addresses found. No 'cc:' or email headers found. Sample from first 2 sources: " . substr($sampleText, 0, 300));
+                }
             }
-            error_log("EmailParser: No CC addresses found. Sample text: " . substr($sampleText, 0, 200));
+        } else {
+            error_log("EmailParser: SUCCESS - Found " . count($ccAddresses) . " CC addresses: " . implode(', ', $ccAddresses));
         }
         
         $this->parsedData['original_cc'] = $ccAddresses;
