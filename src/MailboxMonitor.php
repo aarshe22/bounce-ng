@@ -813,6 +813,17 @@ class MailboxMonitor {
         $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $destMailboxPath = null;
         
+        // Extract base connection string from the first mailbox (same logic as in processInbox)
+        $baseConnectionString = $connectionString;
+        if ($allMailboxes && count($allMailboxes) > 0) {
+            $firstMailbox = $allMailboxes[0];
+            $bracePos = strpos($firstMailbox, '}');
+            if ($bracePos !== false) {
+                $baseConnectionString = substr($firstMailbox, 0, $bracePos + 1);
+                $this->eventLogger->log('debug', "Extracted base connection string from imap_list: '{$baseConnectionString}' (from: '{$firstMailbox}')", null, $this->mailbox['id']);
+            }
+        }
+        
         // Try multiple folder name variations to handle case sensitivity and encoding
         $folderVariations = [
             $folder,
