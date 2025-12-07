@@ -441,6 +441,22 @@ class MailboxMonitor {
                 $trustScore = $trustCalculator->updateDomainTrustScore($recipientDomain, $bounceData);
 
                 // Queue notifications
+                // If no CC addresses found, try to extract from stored bounce record (in case it was stored as string)
+                if (empty($originalCc)) {
+                    $ccCheckStmt = $this->db->prepare("SELECT original_cc FROM bounces WHERE id = ?");
+                    $ccCheckStmt->execute([$bounceId]);
+                    $bounceRecord = $ccCheckStmt->fetch();
+                    if ($bounceRecord && !empty($bounceRecord['original_cc'])) {
+                        // Parse the stored CC string using the parser's method
+                        $tempParser = new EmailParser('');
+                        $reflection = new \ReflectionClass($tempParser);
+                        $parseMethod = $reflection->getMethod('parseEmailList');
+                        $parseMethod->setAccessible(true);
+                        $originalCc = $parseMethod->invoke($tempParser, $bounceRecord['original_cc']);
+                        $this->eventLogger->log('info', "Extracted CC addresses from stored bounce record: " . count($originalCc) . " addresses", null, $this->mailbox['id']);
+                    }
+                }
+                
                 $this->queueNotifications($bounceId, $originalCc);
 
                 // Move to processed
@@ -505,34 +521,47 @@ class MailboxMonitor {
     }
 
     private function queueNotifications($bounceId, $ccAddresses) {
-        $this->eventLogger->log('debug', "queueNotifications called for bounce ID {$bounceId} with " . count($ccAddresses ?? []) . " CC addresses", null, $this->mailbox['id']);
+        $ccCount = is_array($ccAddresses) ? count($ccAddresses) : 0;
+        $this->eventLogger->log('debug', "queueNotifications called for bounce ID {$bounceId} with {$ccCount} CC addresses", null, $this->mailbox['id']);
         
-        if (empty($ccAddresses)) {
+        if (empty($ccAddresses) || !is_array($ccAddresses) || $ccCount === 0) {
             $this->eventLogger->log('info', "No CC addresses to queue notifications for bounce ID {$bounceId}", null, $this->mailbox['id']);
             return;
         }
 
         $stmt = $this->db->prepare("
-            INSERT INTO notifications_queue (bounce_id, recipient_email, status)
+            INSERT OR IGNORE INTO notifications_queue (bounce_id, recipient_email, status)
             VALUES (?, ?, 'pending')
         ");
 
         $queuedCount = 0;
+        $skippedCount = 0;
         foreach ($ccAddresses as $email) {
+            $email = trim($email);
+            if (empty($email)) {
+                continue;
+            }
+            
             if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 try {
-                    $stmt->execute([$bounceId, $email]);
-                    $queuedCount++;
-                    $this->eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                    $stmt->execute([$bounceId, strtolower($email)]);
+                    if ($stmt->rowCount() > 0) {
+                        $queuedCount++;
+                        $this->eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                    } else {
+                        $skippedCount++;
+                        $this->eventLogger->log('debug', "Notification for {$email} already exists (bounce ID: {$bounceId})", null, $this->mailbox['id']);
+                    }
                 } catch (Exception $e) {
                     $this->eventLogger->log('warning', "Failed to queue notification for {$email}: {$e->getMessage()}", null, $this->mailbox['id']);
                 }
             } else {
+                $skippedCount++;
                 $this->eventLogger->log('debug', "Skipping invalid email address: {$email}", null, $this->mailbox['id']);
             }
         }
         
-        $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "Queued {$queuedCount} notification(s) for bounce ID {$bounceId}" . ($skippedCount > 0 ? " ({$skippedCount} skipped)" : ""), null, $this->mailbox['id']);
     }
 
     private function moveMessage($messageNum, $folder, $useUid = false) {

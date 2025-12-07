@@ -101,6 +101,56 @@ try {
                 $eventLogger->log('info', "Mailbox created: {$data['name']}", $_SESSION['user_id'], $mailboxId);
                 
                 echo json_encode(['success' => true, 'id' => $mailboxId]);
+            } elseif ($path === 'retroactive-queue') {
+                // Retroactively queue notifications for ALL existing bounces that have CC addresses but no notifications
+                $stmt = $db->query("
+                    SELECT b.id, b.original_cc, b.mailbox_id
+                    FROM bounces b
+                    LEFT JOIN notifications_queue nq ON b.id = nq.bounce_id
+                    WHERE b.original_cc IS NOT NULL 
+                    AND b.original_cc != ''
+                    AND nq.id IS NULL
+                ");
+                $bounces = $stmt->fetchAll();
+                
+                $queuedCount = 0;
+                $eventLogger = new EventLogger();
+                
+                foreach ($bounces as $bounce) {
+                    if (!empty($bounce['original_cc'])) {
+                        // Parse CC string - extract all email addresses
+                        $ccList = $bounce['original_cc'];
+                        $emails = [];
+                        
+                        // Extract emails using regex
+                        if (preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/i', $ccList, $matches)) {
+                            $emails = array_unique(array_map('strtolower', $matches[0]));
+                        }
+                        
+                        // Queue each email
+                        $queueStmt = $db->prepare("
+                            INSERT OR IGNORE INTO notifications_queue (bounce_id, recipient_email, status)
+                            VALUES (?, ?, 'pending')
+                        ");
+                        
+                        foreach ($emails as $email) {
+                            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                                try {
+                                    $queueStmt->execute([$bounce['id'], $email]);
+                                    if ($queueStmt->rowCount() > 0) {
+                                        $queuedCount++;
+                                    }
+                                } catch (Exception $e) {
+                                    // Skip duplicates or errors
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                $eventLogger->log('info', "Retroactively queued {$queuedCount} notifications from " . count($bounces) . " existing bounces", $_SESSION['user_id'] ?? null);
+                
+                echo json_encode(['success' => true, 'queued' => $queuedCount, 'bounces_processed' => count($bounces)]);
             } elseif ($path === 'process' && isset($data['mailbox_id'])) {
                 try {
                     $monitor = new MailboxMonitor($data['mailbox_id']);

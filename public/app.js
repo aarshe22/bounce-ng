@@ -563,6 +563,21 @@ async function runProcessing() {
                 if (processData.success) {
                     const result = processData.data || {};
                     addEventLogMessage('success', `Completed ${mailbox.name}: ${result.processed || 0} processed, ${result.skipped || 0} skipped, ${result.problems || 0} problems`);
+                    
+                    // After processing, retroactively queue notifications for existing bounces with CC addresses
+                    try {
+                        const retroResponse = await fetch('/api/mailboxes.php?action=retroactive-queue', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mailbox_id: mailbox.id })
+                        });
+                        const retroData = await retroResponse.json();
+                        if (retroData.success && retroData.queued > 0) {
+                            addEventLogMessage('info', `Queued ${retroData.queued} additional notifications from existing bounces`);
+                        }
+                    } catch (retroError) {
+                        console.error('Error in retroactive queue:', retroError);
+                    }
                 } else {
                     addEventLogMessage('error', `Error processing ${mailbox.name}: ${processData.error || 'Unknown error'}`);
                 }
@@ -626,6 +641,48 @@ function addEventLogMessage(severity, message) {
         // Keep only last 100 items
         while (container.children.length > 100) {
             container.removeChild(container.lastChild);
+        }
+    }
+}
+
+// Retroactively queue notifications from existing bounces
+async function retroactiveQueue() {
+    const btn = document.querySelector('button[onclick="retroactiveQueue()"]');
+    const originalText = btn ? btn.innerHTML : '';
+    
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+        }
+        
+        addEventLogMessage('info', 'Starting retroactive notification queueing...');
+        
+        const response = await fetch('/api/mailboxes.php?action=retroactive-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', `Queued ${data.queued} notifications from ${data.bounces_processed} existing bounces`);
+            await loadNotificationQueue();
+            await loadDashboard();
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error in retroactive queue:', error);
+        addEventLogMessage('error', 'Retroactive queue failed: ' + error.message);
+        alert('Error: ' + error.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         }
     }
 }

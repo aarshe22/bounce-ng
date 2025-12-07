@@ -228,7 +228,35 @@ class EmailParser {
         // Extract original CC addresses - try multiple patterns and locations
         $ccAddresses = [];
         
-        // Pattern 1: X-Original-CC in body
+        // Pattern 1: Look for CC in embedded original email headers (common in bounce messages)
+        // Many bounce emails include the original message headers in the body
+        $embeddedHeaderPatterns = [
+            // Look for original email headers embedded in the bounce body
+            '/^CC:\s*([^\r\n]+)/im',
+            '/^Cc:\s*([^\r\n]+)/im',
+            '/^X-Original-CC:\s*([^\r\n]+)/im',
+            '/^Original-CC:\s*([^\r\n]+)/im',
+            '/^Resent-CC:\s*([^\r\n]+)/im',
+            '/^X-Envelope-CC:\s*([^\r\n]+)/im',
+            // Look for CC in quoted original message sections
+            '/-----Original Message-----[\s\S]*?CC:\s*([^\r\n]+)/i',
+            '/From:[\s\S]*?CC:\s*([^\r\n]+)/i',
+            '/To:[\s\S]*?CC:\s*([^\r\n]+)/i',
+        ];
+        
+        foreach ($embeddedHeaderPatterns as $pattern) {
+            if (preg_match_all($pattern, $body, $matches)) {
+                foreach ($matches[1] as $ccList) {
+                    $ccList = trim($ccList);
+                    if (!empty($ccList)) {
+                        $parsed = $this->parseEmailList($ccList);
+                        $ccAddresses = array_merge($ccAddresses, $parsed);
+                    }
+                }
+            }
+        }
+        
+        // Pattern 2: Standard CC header patterns in body
         $patterns = [
             '/X-Original-CC:\s*([^\r\n]+)/i',
             '/Original-CC:\s*([^\r\n]+)/i',
@@ -247,7 +275,7 @@ class EmailParser {
             }
         }
         
-        // Pattern 2: Check headers
+        // Pattern 3: Check email headers
         $headerFields = ['x-original-cc', 'original-cc', 'cc', 'resent-cc', 'x-envelope-cc'];
         foreach ($headerFields as $field) {
             if (isset($this->parsedData[$field])) {
@@ -256,6 +284,17 @@ class EmailParser {
                     : $this->parsedData[$field];
                 $parsed = $this->parseEmailList($ccList);
                 $ccAddresses = array_merge($ccAddresses, $parsed);
+            }
+        }
+        
+        // Pattern 4: Look for email addresses in the body that might be CC addresses
+        // This is a fallback - look for email patterns near "CC" or "Cc" keywords
+        if (empty($ccAddresses)) {
+            if (preg_match_all('/(?:CC|Cc|cc):\s*([^\r\n]+)/i', $body, $matches)) {
+                foreach ($matches[1] as $ccList) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
             }
         }
         
