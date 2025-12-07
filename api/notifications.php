@@ -53,6 +53,7 @@ try {
                 $overrideEmailStmt->execute();
                 $overrideEmail = $overrideEmailStmt->fetch();
 
+                // NotificationSender will get relay provider from notification/mailbox
                 $sender = new NotificationSender();
                 $sender->setTestMode(
                     $testMode && $testMode['value'] === '1',

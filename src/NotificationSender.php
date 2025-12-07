@@ -10,10 +10,12 @@ class NotificationSender {
     private $eventLogger;
     private $testMode = false;
     private $overrideEmail = '';
+    private $relayProviderId = null;
 
-    public function __construct() {
+    public function __construct($relayProviderId = null) {
         $this->db = Database::getInstance();
         $this->eventLogger = new EventLogger();
+        $this->relayProviderId = $relayProviderId;
     }
 
     public function setTestMode($enabled, $overrideEmail = '') {
@@ -23,10 +25,11 @@ class NotificationSender {
 
     public function sendNotification($notificationId) {
         $stmt = $this->db->prepare("
-            SELECT nq.*, b.*, nt.subject as template_subject, nt.body as template_body
+            SELECT nq.*, b.*, m.relay_provider_id, nt.subject as template_subject, nt.body as template_body
             FROM notifications_queue nq
             JOIN bounces b ON nq.bounce_id = b.id
-            JOIN notification_template nt
+            JOIN mailboxes m ON b.mailbox_id = m.id
+            CROSS JOIN (SELECT subject, body FROM notification_template ORDER BY id DESC LIMIT 1) nt
             WHERE nq.id = ?
         ");
         $stmt->execute([$notificationId]);
@@ -38,6 +41,20 @@ class NotificationSender {
 
         if ($notification['status'] !== 'pending') {
             return false; // Already processed
+        }
+
+        // Get relay provider (use from notification/mailbox or fallback to constructor param)
+        $relayProviderId = $notification['relay_provider_id'] ?? $this->relayProviderId;
+        if (!$relayProviderId) {
+            throw new \Exception("No relay provider configured for this mailbox");
+        }
+
+        $stmt = $this->db->prepare("SELECT * FROM relay_providers WHERE id = ? AND is_active = 1");
+        $stmt->execute([$relayProviderId]);
+        $relayProvider = $stmt->fetch();
+
+        if (!$relayProvider) {
+            throw new \Exception("Relay provider not found or inactive");
         }
 
         // Get SMTP code details
@@ -60,14 +77,22 @@ class NotificationSender {
         try {
             $mail = new PHPMailer(true);
             $mail->isSMTP();
-            $mail->Host = SMTP_HOST;
+            $mail->Host = $relayProvider['smtp_host'];
             $mail->SMTPAuth = true;
-            $mail->Username = SMTP_USER;
-            $mail->Password = SMTP_PASS;
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port = SMTP_PORT;
+            $mail->Username = $relayProvider['smtp_username'];
+            $mail->Password = $relayProvider['smtp_password'];
+            
+            // Set encryption based on provider setting
+            $encryption = strtolower($relayProvider['smtp_encryption']);
+            if ($encryption === 'ssl') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            } else {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            }
+            
+            $mail->Port = (int)$relayProvider['smtp_port'];
 
-            $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+            $mail->setFrom($relayProvider['smtp_from_email'], $relayProvider['smtp_from_name']);
             $mail->addAddress($recipient);
             $mail->Subject = $subject;
             $mail->Body = $body;

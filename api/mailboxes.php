@@ -20,9 +20,18 @@ try {
     switch ($method) {
         case 'GET':
             if ($path === 'list') {
-                $stmt = $db->prepare("SELECT * FROM mailboxes ORDER BY created_at DESC");
+                $stmt = $db->prepare("
+                    SELECT m.*, rp.name as relay_provider_name 
+                    FROM mailboxes m 
+                    LEFT JOIN relay_providers rp ON m.relay_provider_id = rp.id
+                    ORDER BY m.created_at DESC
+                ");
                 $stmt->execute();
                 $mailboxes = $stmt->fetchAll();
+                // Remove passwords from response
+                foreach ($mailboxes as &$mailbox) {
+                    unset($mailbox['imap_password']);
+                }
                 echo json_encode(['success' => true, 'data' => $mailboxes]);
             } elseif ($path === 'get' && isset($_GET['id'])) {
                 $stmt = $db->prepare("SELECT * FROM mailboxes WHERE id = ?");
@@ -67,8 +76,8 @@ try {
                     INSERT INTO mailboxes (
                         name, email, imap_server, imap_port, imap_protocol,
                         imap_username, imap_password, folder_inbox, folder_processed,
-                        folder_problem, folder_skipped, is_enabled
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        folder_problem, folder_skipped, relay_provider_id, is_enabled
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 
                 $stmt->execute([
@@ -83,6 +92,7 @@ try {
                     $data['folder_processed'] ?? 'Processed',
                     $data['folder_problem'] ?? 'Problem',
                     $data['folder_skipped'] ?? 'Skipped',
+                    $data['relay_provider_id'] ?? null,
                     $data['is_enabled'] ?? 1
                 ]);
                 
@@ -104,7 +114,13 @@ try {
                 $realTime = !$settings || $settings['value'] === 'realtime';
                 
                 if ($realTime) {
-                    $notificationSender = new \BounceNG\NotificationSender();
+                    // Get relay provider from mailbox
+                    $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
+                    $mailboxStmt->execute([$data['mailbox_id']]);
+                    $mailbox = $mailboxStmt->fetch();
+                    $relayProviderId = $mailbox['relay_provider_id'] ?? null;
+                    
+                    $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
                     $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
                     $testModeStmt->execute();
                     $testMode = $testModeStmt->fetch();
@@ -131,15 +147,23 @@ try {
             $data = json_decode(file_get_contents('php://input'), true);
             
             if ($path === 'update' && isset($data['id'])) {
-                $stmt = $db->prepare("
-                    UPDATE mailboxes SET
-                        name = ?, email = ?, imap_server = ?, imap_port = ?,
-                        imap_protocol = ?, imap_username = ?,
-                        folder_inbox = ?, folder_processed = ?, folder_problem = ?,
-                        folder_skipped = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP
-                        " . (isset($data['imap_password']) ? ", imap_password = ?" : "") . "
-                    WHERE id = ?
-                ");
+                $updatePassword = isset($data['imap_password']) && !empty($data['imap_password']);
+                $updateRelay = isset($data['relay_provider_id']);
+                
+                $sql = "UPDATE mailboxes SET
+                    name = ?, email = ?, imap_server = ?, imap_port = ?,
+                    imap_protocol = ?, imap_username = ?,
+                    folder_inbox = ?, folder_processed = ?, folder_problem = ?,
+                    folder_skipped = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP";
+                
+                if ($updatePassword) {
+                    $sql .= ", imap_password = ?";
+                }
+                if ($updateRelay) {
+                    $sql .= ", relay_provider_id = ?";
+                }
+                
+                $sql .= " WHERE id = ?";
                 
                 $params = [
                     $data['name'],
@@ -155,11 +179,15 @@ try {
                     $data['is_enabled'] ?? 1
                 ];
                 
-                if (isset($data['imap_password'])) {
+                if ($updatePassword) {
                     $params[] = $data['imap_password'];
+                }
+                if ($updateRelay) {
+                    $params[] = $data['relay_provider_id'] ?: null;
                 }
                 $params[] = $data['id'];
                 
+                $stmt = $db->prepare($sql);
                 $stmt->execute($params);
                 
                 $eventLogger = new EventLogger();

@@ -53,6 +53,21 @@ class Database {
             UNIQUE(provider, provider_id)
         );
 
+        CREATE TABLE IF NOT EXISTS relay_providers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            smtp_host TEXT NOT NULL,
+            smtp_port INTEGER NOT NULL,
+            smtp_username TEXT NOT NULL,
+            smtp_password TEXT NOT NULL,
+            smtp_from_email TEXT NOT NULL,
+            smtp_from_name TEXT NOT NULL,
+            smtp_encryption TEXT DEFAULT 'tls',
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS mailboxes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -66,10 +81,12 @@ class Database {
             folder_processed TEXT DEFAULT 'Processed',
             folder_problem TEXT DEFAULT 'Problem',
             folder_skipped TEXT DEFAULT 'Skipped',
+            relay_provider_id INTEGER,
             is_enabled INTEGER DEFAULT 1,
             last_processed DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (relay_provider_id) REFERENCES relay_providers(id)
         );
 
         CREATE TABLE IF NOT EXISTS bounces (

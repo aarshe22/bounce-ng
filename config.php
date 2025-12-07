@@ -27,15 +27,7 @@ define('MICROSOFT_CLIENT_ID', $_ENV['MICROSOFT_CLIENT_ID'] ?? '');
 define('MICROSOFT_CLIENT_SECRET', $_ENV['MICROSOFT_CLIENT_SECRET'] ?? '');
 define('MICROSOFT_REDIRECT_URI', $_ENV['MICROSOFT_REDIRECT_URI'] ?? APP_URL . '/auth/microsoft/callback');
 
-// SMTP configuration
-define('SMTP_HOST', $_ENV['SMTP_HOST'] ?? '');
-define('SMTP_PORT', $_ENV['SMTP_PORT'] ?? 587);
-define('SMTP_USER', $_ENV['SMTP_USER'] ?? '');
-define('SMTP_PASS', $_ENV['SMTP_PASS'] ?? '');
-define('SMTP_FROM_EMAIL', $_ENV['SMTP_FROM_EMAIL'] ?? '');
-define('SMTP_FROM_NAME', $_ENV['SMTP_FROM_NAME'] ?? 'Bounce Monitor');
-
-// Test mode override
+// Test mode override (can still be in .env for convenience, but also stored in DB)
 define('TEST_MODE_OVERRIDE_EMAIL', $_ENV['TEST_MODE_OVERRIDE_EMAIL'] ?? '');
 
 // Session configuration

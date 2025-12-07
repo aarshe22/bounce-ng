@@ -7,6 +7,7 @@ let eventPollInterval = null;
 document.addEventListener('DOMContentLoaded', function() {
     loadUserInfo();
     loadSettings();
+    loadRelayProviders();
     loadMailboxes();
     loadDashboard();
     loadEventLog();
@@ -130,6 +131,7 @@ function displayMailboxes(mailboxes) {
                     <strong>${mailbox.name}</strong>
                     <br>
                     <small class="text-muted">${mailbox.email}</small>
+                    ${mailbox.relay_provider_name ? `<br><small class="text-info">Relay: ${mailbox.relay_provider_name}</small>` : ''}
                     ${mailbox.last_processed ? `<br><small class="text-muted">Last processed: ${new Date(mailbox.last_processed).toLocaleString()}</small>` : ''}
                 </div>
                 <div>
@@ -171,7 +173,9 @@ async function editMailbox(id) {
             document.getElementById('mailboxProcessed').value = mailbox.folder_processed;
             document.getElementById('mailboxProblem').value = mailbox.folder_problem;
             document.getElementById('mailboxSkipped').value = mailbox.folder_skipped;
+            document.getElementById('mailboxRelayProvider').value = mailbox.relay_provider_id || '';
             document.getElementById('mailboxEnabled').checked = mailbox.is_enabled == 1;
+            loadRelayProviders(); // Refresh relay provider list
             new bootstrap.Modal(document.getElementById('mailboxModal')).show();
         }
     } catch (error) {
@@ -249,6 +253,7 @@ async function saveMailbox() {
         folder_processed: document.getElementById('mailboxProcessed').value,
         folder_problem: document.getElementById('mailboxProblem').value,
         folder_skipped: document.getElementById('mailboxSkipped').value,
+        relay_provider_id: document.getElementById('mailboxRelayProvider').value || null,
         is_enabled: document.getElementById('mailboxEnabled').checked ? 1 : 0
     };
     

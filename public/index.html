@@ -81,6 +81,16 @@
 
                                 <hr>
 
+                                <h6>Relay Providers</h6>
+                                <div class="mb-3">
+                                    <button class="btn btn-sm btn-primary w-100" onclick="showAddRelayProviderModal()">
+                                        <i class="bi bi-plus-circle"></i> Add Relay Provider
+                                    </button>
+                                </div>
+                                <div id="relayProviderList" class="list-group mb-3"></div>
+
+                                <hr>
+
                                 <h6>Mailboxes</h6>
                                 <div id="mailboxList" class="list-group"></div>
                             </div>
@@ -227,6 +237,13 @@
                             </div>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">Relay Provider</label>
+                            <select class="form-select" id="mailboxRelayProvider">
+                                <option value="">-- None (use default) --</option>
+                            </select>
+                            <small class="text-muted">Select email relay provider for sending notifications from this mailbox</small>
+                        </div>
+                        <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="mailboxEnabled" checked>
                                 <label class="form-check-label" for="mailboxEnabled">Enabled</label>
@@ -238,6 +255,77 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-info" onclick="testMailboxConnection()">Test Connection</button>
                     <button type="button" class="btn btn-primary" onclick="saveMailbox()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Relay Provider Modal -->
+    <div class="modal fade" id="relayProviderModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="relayProviderModalTitle">Add Relay Provider</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="relayProviderForm">
+                        <input type="hidden" id="relayProviderId">
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" id="relayProviderName" required>
+                            <small class="text-muted">Descriptive name for this relay provider</small>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-8 mb-3">
+                                <label class="form-label">SMTP Host</label>
+                                <input type="text" class="form-control" id="relayProviderHost" required>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Port</label>
+                                <input type="number" class="form-control" id="relayProviderPort" value="587" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Encryption</label>
+                            <select class="form-select" id="relayProviderEncryption" required>
+                                <option value="tls">TLS (STARTTLS)</option>
+                                <option value="ssl">SSL</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" id="relayProviderUsername" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-control" id="relayProviderPassword" required>
+                                <small class="text-muted">Leave blank when editing to keep existing password</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">From Email</label>
+                                <input type="email" class="form-control" id="relayProviderFromEmail" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">From Name</label>
+                                <input type="text" class="form-control" id="relayProviderFromName" value="Bounce Monitor" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="relayProviderEnabled" checked>
+                                <label class="form-check-label" for="relayProviderEnabled">Active</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" onclick="testRelayProvider()">Test Connection</button>
+                    <button type="button" class="btn btn-primary" onclick="saveRelayProvider()">Save</button>
                 </div>
             </div>
         </div>
