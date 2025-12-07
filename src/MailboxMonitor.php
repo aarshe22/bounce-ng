@@ -212,39 +212,32 @@ class MailboxMonitor {
             throw new Exception("IMAP connection is not alive: {$error}");
         }
         
-        // Select the folder using the actual mailbox path - try imap_select first (more reliable)
-        // Use call_user_func with fully qualified function name to ensure we call the global function
+        // Select the folder using the actual mailbox path - try imap_reopen first (more reliable for existing connections)
         $result = false;
         $error = null;
         
+        // Use imap_reopen directly (works better than imap_select for existing connections)
         try {
-            // Call the global imap_select function using call_user_func
-            $result = @call_user_func('\\imap_select', $this->imapConnection, $actualMailboxPath);
+            $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
             $error = \imap_last_error();
-            $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
+            $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
         } catch (Exception $e) {
             $error = $e->getMessage();
-            $this->eventLogger->log('error', "imap_select threw exception: {$error}", null, $this->mailbox['id']);
+            $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
         } catch (\Error $e) {
             $error = $e->getMessage();
-            $this->eventLogger->log('error', "imap_select threw error: {$error}", null, $this->mailbox['id']);
+            $this->eventLogger->log('error', "imap_reopen threw error: {$error}", null, $this->mailbox['id']);
         }
         
+        // If reopen failed, try closing and reopening the connection
         if (!$result) {
-            if ($error) {
-                $this->eventLogger->log('warning', "imap_select failed: {$error}, trying imap_reopen", null, $this->mailbox['id']);
-            }
-            // Fallback to imap_reopen
-            try {
-                $result = @call_user_func('\\imap_reopen', $this->imapConnection, $actualMailboxPath);
+            $this->eventLogger->log('warning', "imap_reopen failed: " . ($error ?: 'unknown error') . ", trying to reconnect", null, $this->mailbox['id']);
+            @\imap_close($this->imapConnection);
+            $this->imapConnection = @\imap_open($connectionString, $this->mailbox['imap_username'], $this->mailbox['imap_password']);
+            if ($this->imapConnection) {
+                $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
                 $error = \imap_last_error();
-                $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
-            } catch (Exception $e) {
-                $error = $e->getMessage();
-                $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
-            } catch (\Error $e) {
-                $error = $e->getMessage();
-                $this->eventLogger->log('error', "imap_reopen threw error: {$error}", null, $this->mailbox['id']);
+                $this->eventLogger->log('info', "After reconnect, imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
             }
         }
         
@@ -295,18 +288,23 @@ class MailboxMonitor {
             // Also try getting UIDs which might work even if message count doesn't
             // This is critical for custom folders where imap_num_msg might return 0
             if ($messageCount == 0) {
+                $this->eventLogger->log('info', "Message count is still 0, trying imap_search with SE_UID...", null, $this->mailbox['id']);
                 $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
                 if ($uids && is_array($uids) && count($uids) > 0) {
                     $uidCount = count($uids);
                     $messageCount = $uidCount;
-                    $this->eventLogger->log('info', "Message count from imap_search UIDs: {$messageCount} (imap_num_msg returned 0 but UIDs found)", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "SUCCESS: Message count from imap_search UIDs: {$messageCount} (imap_num_msg returned 0 but UIDs found!)", null, $this->mailbox['id']);
                 } else {
                     // Try without SE_UID flag as fallback
+                    $this->eventLogger->log('info', "imap_search with SE_UID returned nothing, trying without SE_UID...", null, $this->mailbox['id']);
                     $uids = @\imap_search($this->imapConnection, 'ALL');
                     if ($uids && is_array($uids) && count($uids) > 0) {
                         $uidCount = count($uids);
                         $messageCount = $uidCount;
-                        $this->eventLogger->log('info', "Message count from imap_search (no UID flag): {$messageCount}", null, $this->mailbox['id']);
+                        $this->eventLogger->log('info', "SUCCESS: Message count from imap_search (no UID flag): {$messageCount}", null, $this->mailbox['id']);
+                    } else {
+                        $error = \imap_last_error();
+                        $this->eventLogger->log('warning', "imap_search returned nothing. Last error: " . ($error ?: 'none'), null, $this->mailbox['id']);
                     }
                 }
             }

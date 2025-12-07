@@ -542,6 +542,22 @@ class EmailParser {
         }));
         $ccAddresses = array_values($ccAddresses);
         
+        // Debug logging for CC extraction
+        if (empty($ccAddresses)) {
+            // Log a sample of the search texts to help debug
+            $sampleText = '';
+            foreach ($searchTexts as $name => $text) {
+                if (stripos($text, 'cc:') !== false || stripos($text, 'Cc:') !== false) {
+                    $sampleText = substr($text, max(0, stripos($text, 'cc:') - 100), 500);
+                    break;
+                }
+            }
+            if (empty($sampleText)) {
+                $sampleText = substr(implode("\n", array_slice($searchTexts, 0, 2)), 0, 500);
+            }
+            error_log("EmailParser: No CC addresses found. Sample text: " . substr($sampleText, 0, 200));
+        }
+        
         $this->parsedData['original_cc'] = $ccAddresses;
         
         // Extract original subject
