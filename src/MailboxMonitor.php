@@ -391,21 +391,66 @@ class MailboxMonitor {
         foreach ($uids as $index => $uid) {
             $this->eventLogger->log('debug', "Processing message " . ($index + 1) . " of " . count($uids) . " (UID: {$uid})", null, $this->mailbox['id']);
             try {
-                // Fetch message using UID to avoid number shifting issues
-                $header = @\imap_headerinfo($this->imapConnection, $uid, FT_UID);
-                if (!$header) {
+                // Fetch message structure to understand MIME parts
+                $structure = @\imap_fetchstructure($this->imapConnection, $uid, FT_UID);
+                if (!$structure) {
+                    $this->eventLogger->log('warning', "Could not fetch structure for message UID {$uid}, skipping", null, $this->mailbox['id']);
+                    continue;
+                }
+                
+                // Fetch all body parts using imap_fetchbody (like the example code)
+                $rawParts = [];
+                
+                // Part 0 = headers
+                $rawHeader = @\imap_fetchbody($this->imapConnection, $uid, '0', FT_UID);
+                if ($rawHeader === false) {
+                    // Fallback to imap_fetchheader
+                    $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
+                }
+                
+                if (!$rawHeader) {
                     $this->eventLogger->log('warning', "Could not fetch header for message UID {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
-                $body = @\imap_body($this->imapConnection, $uid, FT_UID);
-                $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
-                if (!$rawHeader) {
-                    $this->eventLogger->log('warning', "Could not fetch raw header for message UID {$uid}, skipping", null, $this->mailbox['id']);
-                    continue;
+                $rawParts['0'] = $rawHeader;
+                
+                // Part 1 = first body part (often multipart/alternative)
+                $rawParts['1'] = @\imap_fetchbody($this->imapConnection, $uid, '1', FT_UID) ?: '';
+                $rawParts['1.1'] = @\imap_fetchbody($this->imapConnection, $uid, '1.1', FT_UID) ?: '';
+                $rawParts['1.2'] = @\imap_fetchbody($this->imapConnection, $uid, '1.2', FT_UID) ?: '';
+                
+                // Part 2 = message/rfc822 (attached original message - this is where CC usually is!)
+                $rawParts['2'] = @\imap_fetchbody($this->imapConnection, $uid, '2', FT_UID) ?: '';
+                $rawParts['2.0'] = @\imap_fetchbody($this->imapConnection, $uid, '2.0', FT_UID) ?: '';
+                $rawParts['2.1'] = @\imap_fetchbody($this->imapConnection, $uid, '2.1', FT_UID) ?: '';
+                $rawParts['2.2'] = @\imap_fetchbody($this->imapConnection, $uid, '2.2', FT_UID) ?: '';
+                $rawParts['2.3'] = @\imap_fetchbody($this->imapConnection, $uid, '2.3', FT_UID) ?: '';
+                
+                // Also get full body as fallback
+                $fullBody = @\imap_body($this->imapConnection, $uid, FT_UID) ?: '';
+                
+                // Combine all parts for parsing - prioritize part 2 (message/rfc822) which contains original email
+                $combinedBody = '';
+                if (!empty($rawParts['2'])) {
+                    // Part 2 is the embedded original message - this is where CC usually is!
+                    $combinedBody = $rawParts['2'];
+                } else {
+                    // Fallback to other parts
+                    $combinedBody = implode("\r\n\r\n", array_filter([
+                        $rawParts['1'] ?? '',
+                        $rawParts['1.1'] ?? '',
+                        $rawParts['1.2'] ?? '',
+                        $fullBody
+                    ]));
                 }
                 
-                $rawEmail = $rawHeader . "\r\n\r\n" . ($body ?: '');
+                // Combine header with all body parts
+                $rawEmail = $rawHeader . "\r\n\r\n" . $combinedBody;
+                
+                // Also store all parts separately for the parser to search
+                $allPartsText = implode("\r\n\r\n", array_filter($rawParts));
+                $rawEmail = $rawEmail . "\r\n\r\n---ALL_PARTS---\r\n\r\n" . $allPartsText;
 
                 $parser = new EmailParser($rawEmail);
 

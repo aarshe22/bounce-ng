@@ -267,12 +267,35 @@ class EmailParser {
         // Search in ALL decoded parts for original email information
         $allText = implode("\r\n\r\n", $this->allDecodedParts);
         
+        // Extract the "ALL_PARTS" section if present (from MailboxMonitor)
+        $allPartsSection = '';
+        if (preg_match('/---ALL_PARTS---\r?\n\r?\n(.*)$/s', $this->rawEmail, $matches)) {
+            $allPartsSection = $matches[1];
+        }
+        
         // Also search in raw email and headers
         $searchTexts = [
             'raw_email' => $this->rawEmail,
             'raw_headers' => $this->headers,
-            'decoded_parts' => $allText
+            'decoded_parts' => $allText,
+            'all_parts' => $allPartsSection
         ];
+        
+        // Method inspired by the example: split on "MIME-Version: 1.0" and search in fragments
+        $fragments = explode("MIME-Version: 1.0", $this->rawEmail);
+        if (count($fragments) > 1) {
+            $searchTexts['mime_fragment'] = $fragments[1];
+            $searchTexts['mime_fragment_lower'] = strtolower($fragments[1]);
+        }
+        
+        // Also split on "MIME-Version: 1.0" in all parts section
+        if (!empty($allPartsSection)) {
+            $partsFragments = explode("MIME-Version: 1.0", $allPartsSection);
+            if (count($partsFragments) > 1) {
+                $searchTexts['parts_mime_fragment'] = $partsFragments[1];
+                $searchTexts['parts_mime_fragment_lower'] = strtolower($partsFragments[1]);
+            }
+        }
         
         $originalTo = null;
         $ccAddresses = [];
@@ -319,7 +342,7 @@ class EmailParser {
         
         $this->parsedData['original_to'] = $originalTo;
         
-        // Extract CC addresses - search comprehensively
+        // Extract CC addresses - use multiple methods including the example pattern
         $ccPatterns = [
             // Standard patterns
             '/^CC:\s*([^\r\n]+)/im',
@@ -347,6 +370,38 @@ class EmailParser {
                             $ccAddresses = array_merge($ccAddresses, $parsed);
                         }
                     }
+                }
+            }
+        }
+        
+        // Method from example: extract between "cc:" and "reply-to:" or "date:"
+        foreach ($searchTexts as $sourceName => $text) {
+            $lowerText = strtolower($text);
+            
+            // Try to find CC between "cc:" and "reply-to:"
+            if (preg_match('/cc:\s*([^\r\n]*?)(?:\r?\n\s*(?:reply-to|date|subject|from|to):)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // Try between "cc:" and "date:"
+            if (preg_match('/cc:\s*([^\r\n]*?)(?:\r?\n\s*date:)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
+                }
+            }
+            
+            // Try to find CC after "to:" and before next header
+            if (preg_match('/to:[^\r\n]*\r?\n\s*cc:\s*([^\r\n]+)/is', $lowerText, $matches)) {
+                $ccList = trim($matches[1]);
+                if (!empty($ccList)) {
+                    $parsed = $this->parseEmailList($ccList);
+                    $ccAddresses = array_merge($ccAddresses, $parsed);
                 }
             }
         }
