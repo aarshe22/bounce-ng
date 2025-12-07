@@ -564,110 +564,111 @@ async function runProcessing() {
             return;
         }
         
-        // Increase polling frequency during processing
+        // Increase polling frequency during processing for real-time updates
         const originalInterval = eventPollInterval;
         clearInterval(eventPollInterval);
+        // Poll more frequently during processing to see real-time progress
         eventPollInterval = setInterval(() => {
             if (!logPaused) {
                 loadEventLog();
             }
-        }, 500); // Poll every 500ms during processing
+        }, 1000); // Poll every 1 second during processing (was 500ms, but 1s is more reasonable)
         
-        // Process mailboxes sequentially
-        for (const mailbox of enabledMailboxes) {
+        // Process all mailboxes in parallel - fire off requests immediately
+        // Processing happens server-side in background, we don't wait
+        const processPromises = enabledMailboxes.map(async (mailbox) => {
             try {
-                addEventLogMessage('info', `Processing mailbox: ${mailbox.name}...`);
+                addEventLogMessage('info', `Starting processing for mailbox: ${mailbox.name}...`);
                 
-                // Process mailbox - this may take a while, so we don't wait for full completion
-                // The processing happens in the background and we poll for updates
+                // Use AbortController with short timeout - we don't want to wait
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+                
                 try {
                     const processResponse = await fetch('/api/mailboxes.php?action=process', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailbox_id: mailbox.id })
+                        body: JSON.stringify({ mailbox_id: mailbox.id }),
+                        signal: controller.signal
                     });
                     
+                    clearTimeout(timeoutId);
+                    
                     if (processResponse.ok) {
-                        const processData = await processResponse.json();
-                        if (processData.success) {
-                            if (processData.status === 'processing') {
-                                // Processing started, will continue in background
-                                addEventLogMessage('info', `Processing ${mailbox.name} in background...`);
-                            } else {
-                                const result = processData.data || {};
-                                addEventLogMessage('success', `Completed ${mailbox.name}: ${result.processed || 0} processed, ${result.skipped || 0} skipped, ${result.problems || 0} problems`);
+                        try {
+                            const processData = await processResponse.json();
+                            if (processData.success && processData.status === 'processing') {
+                                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
                             }
+                        } catch (e) {
+                            // Response might not be JSON if fastcgi_finish_request was used - that's OK
+                            addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
                         }
                     } else {
-                        addEventLogMessage('warning', `Processing ${mailbox.name} started (continuing in background)`);
+                        addEventLogMessage('info', `Processing ${mailbox.name} request sent (continuing in background)`);
                     }
                 } catch (error) {
-                    // If timeout or connection error, that's OK - processing continues in background
-                    if (error.name === 'TypeError' || error.message.includes('fetch')) {
-                        addEventLogMessage('info', `Processing ${mailbox.name} started (continuing in background)`);
+                    // Timeout/abort is EXPECTED and OK - processing continues in background
+                    if (error.name === 'AbortError' || error.name === 'TypeError' || 
+                        error.message.includes('fetch') || error.message.includes('timeout') ||
+                        error.message.includes('aborted')) {
+                        addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background (request sent)`);
                     } else {
-                        throw error;
+                        addEventLogMessage('warning', `Error starting ${mailbox.name}: ${error.message}`);
+                        console.error('Processing error:', error);
                     }
-                }
-                
-                // After processing, retroactively queue notifications for existing bounces with CC addresses
-                try {
-                    const retroResponse = await fetch('/api/mailboxes.php?action=retroactive-queue', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailbox_id: mailbox.id })
-                    });
-                    const retroData = await retroResponse.json();
-                    if (retroData.success && retroData.queued > 0) {
-                        addEventLogMessage('info', `Queued ${retroData.queued} additional notifications from existing bounces`);
-                    }
-                } catch (retroError) {
-                    console.error('Error in retroactive queue:', retroError);
                 }
             } catch (error) {
                 console.error(`Error processing mailbox ${mailbox.name}:`, error);
-                addEventLogMessage('error', `Error processing ${mailbox.name}: ${error.message}`);
+                addEventLogMessage('warning', `Error starting ${mailbox.name}: ${error.message}`);
             }
-        }
+        });
         
-        // Restore original polling interval after processing
-        clearInterval(eventPollInterval);
-        eventPollInterval = setInterval(() => {
-            if (!logPaused) {
-                loadEventLog();
+        // Fire off all processing requests (don't await - let them run in background)
+        Promise.all(processPromises).then(() => {
+            addEventLogMessage('info', 'All processing requests sent. Watch event log for real-time progress...');
+        });
+        
+        // Keep button disabled - processing happens in background
+        // Re-enable after a short delay (processing continues server-side)
+        setTimeout(() => {
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = originalText;
             }
-        }, 1000);
-        
-        // Refresh data
-        await Promise.all([
-            loadMailboxes(),
-            loadDashboard(),
-            loadEventLog(),
-            loadNotificationQueue()
-        ]);
-        
-        addEventLogMessage('success', 'Processing complete!');
+            
+            // Restore normal polling interval
+            clearInterval(eventPollInterval);
+            eventPollInterval = setInterval(() => {
+                if (!logPaused) {
+                    loadEventLog();
+                }
+            }, 2000); // Normal polling: every 2 seconds
+            
+            // Refresh data
+            loadMailboxes();
+            loadDashboard();
+            loadEventLog();
+            loadNotificationQueue();
+        }, 3000); // Re-enable button after 3 seconds (processing continues in background)
         
     } catch (error) {
         console.error('Error running processing:', error);
-        alert('Error running processing: ' + error.message);
-        addEventLogMessage('error', 'Processing failed: ' + error.message);
-    } finally {
-        // Re-enable button
+        addEventLogMessage('error', 'Error starting processing: ' + error.message);
+        
+        // Re-enable button on error
         if (runBtn) {
             runBtn.disabled = false;
             runBtn.innerHTML = originalText;
         }
         
         // Restore polling interval on error
-        if (eventPollInterval) {
-            clearInterval(eventPollInterval);
-            eventPollInterval = setInterval(() => {
-                if (!logPaused) {
-                    loadEventLog();
-                }
-            }, 1000);
-        }
+        clearInterval(eventPollInterval);
+        eventPollInterval = setInterval(() => {
+            if (!logPaused) {
+                loadEventLog();
+            }
+        }, 2000);
     }
 }
 

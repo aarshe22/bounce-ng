@@ -231,25 +231,45 @@ try {
                 }
             } elseif ($path === 'process' && isset($data['mailbox_id'])) {
                 // Set longer execution time and ignore user abort for long-running processing
-                set_time_limit(300); // 5 minutes
+                // Processing 165+ messages with aggressive parsing can take 10+ minutes
+                set_time_limit(1800); // 30 minutes - plenty of time for large batches
+                ini_set('max_execution_time', 1800);
                 ignore_user_abort(true);
                 
-                // Send headers to prevent timeout
+                // Disable output buffering to ensure immediate response
+                while (ob_get_level()) {
+                    ob_end_clean();
+                }
+                
+                // Send headers FIRST before any output
                 header('Content-Type: application/json');
-                header('Connection: keep-alive');
+                header('Connection: close'); // Use 'close' not 'keep-alive' for background processing
+                header('Content-Length: 0'); // Let PHP calculate, but signal we're done
+                
+                // Prepare response
+                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started in background']);
+                $responseLength = strlen($response);
+                header('Content-Length: ' . $responseLength);
                 
                 // Flush output immediately so client doesn't timeout
                 if (function_exists('fastcgi_finish_request')) {
-                    // For FastCGI, send response immediately and continue processing
-                    echo json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started']);
+                    // For FastCGI, send response immediately and continue processing in background
+                    echo $response;
+                    // Ensure all output is flushed
+                    if (ob_get_level()) {
+                        ob_end_flush();
+                    }
+                    flush();
+                    // Finish request - client gets response immediately, server continues processing
                     fastcgi_finish_request();
                 } else {
-                    // For non-FastCGI, send chunked response
-                    header('Transfer-Encoding: chunked');
-                    ob_start();
-                    echo json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started']);
-                    ob_flush();
+                    // For non-FastCGI (mod_php), send response and flush
+                    echo $response;
+                    if (ob_get_level()) {
+                        ob_end_flush();
+                    }
                     flush();
+                    // Note: Without FastCGI, processing may still block, but response is sent first
                 }
                 
                 try {
