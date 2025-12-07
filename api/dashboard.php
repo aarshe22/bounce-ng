@@ -22,7 +22,7 @@ try {
     ");
     $domains = $stmt->fetchAll();
 
-    // Get top SMTP codes with descriptions
+    // Get all SMTP codes with descriptions (no limit - show all)
     $stmt = $db->query("
         SELECT b.smtp_code, COUNT(*) as count, sc.description, sc.recommendation
         FROM bounces b
@@ -30,7 +30,6 @@ try {
         WHERE b.smtp_code IS NOT NULL
         GROUP BY b.smtp_code, sc.description, sc.recommendation
         ORDER BY count DESC
-        LIMIT 10
     ");
     $smtpCodes = $stmt->fetchAll();
 

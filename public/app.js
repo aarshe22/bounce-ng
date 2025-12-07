@@ -591,20 +591,43 @@ function displayDashboard(data) {
         domainsContainer.appendChild(item);
     });
     
-    // Top SMTP codes
+    // All SMTP codes (sorted by count descending)
     const codesContainer = document.getElementById('topSmtpCodes');
     codesContainer.innerHTML = '';
+    
+    if (data.smtpCodes.length === 0) {
+        codesContainer.innerHTML = '<p class="text-white-50 mb-0">No SMTP codes found</p>';
+        return;
+    }
+    
+    // Determine severity color based on SMTP code
+    const getCodeColor = (code) => {
+        if (!code) return 'secondary';
+        const codeNum = parseInt(code);
+        if (codeNum >= 550 && codeNum <= 559) return 'danger'; // Permanent failure
+        if (codeNum >= 450 && codeNum <= 459) return 'warning'; // Temporary failure
+        if (codeNum >= 250 && codeNum <= 259) return 'success'; // Success
+        return 'info'; // Other codes
+    };
+    
     data.smtpCodes.forEach(code => {
         const item = document.createElement('div');
-        item.className = 'mb-2';
+        item.className = 'mb-2 p-2 rounded';
         const description = code.description || 'No description available';
+        const codeColor = getCodeColor(code.smtp_code);
+        const bgClass = codeColor === 'danger' ? 'bg-danger bg-opacity-25' : 
+                       codeColor === 'warning' ? 'bg-warning bg-opacity-25' : 
+                       codeColor === 'success' ? 'bg-success bg-opacity-25' : 
+                       'bg-info bg-opacity-25';
+        item.className += ' ' + bgClass;
+        
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
-                    <div class="fw-bold">${code.smtp_code}</div>
+                    <div class="fw-bold text-white">${code.smtp_code || 'N/A'}</div>
                     <small class="text-white-50">${description}</small>
                 </div>
-                <span class="badge bg-secondary ms-2">${code.count}</span>
+                <span class="badge bg-${codeColor} ms-2">${code.count}</span>
             </div>
         `;
         codesContainer.appendChild(item);
