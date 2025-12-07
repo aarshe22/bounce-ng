@@ -299,8 +299,9 @@ class MailboxMonitor {
         
         // CRITICAL: If messageCount > 0, skip the entire if block and go straight to processing
         if ($messageCount > 0) {
-            $this->eventLogger->log('debug', "BYPASS: messageCount > 0, skipping fallback methods block", null, $this->mailbox['id']);
-            error_log("MailboxMonitor: BYPASS: messageCount > 0, skipping fallback methods block");
+            $this->eventLogger->log('info', "BYPASS: messageCount > 0 ({$messageCount}), skipping fallback methods block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: BYPASS: messageCount > 0 ({$messageCount}), skipping fallback methods block");
+            // Intentionally empty - just skip the fallback block
         } elseif ($isZero) {
             $this->eventLogger->log('debug', "TEST: If condition was TRUE - entered if block", null, $this->mailbox['id']);
             error_log("MailboxMonitor: TEST: If condition was TRUE - entered if block");
@@ -431,8 +432,9 @@ class MailboxMonitor {
             error_log("MailboxMonitor: ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0");
         }
         
-        $this->eventLogger->log('debug', "AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}");
+        // CRITICAL CHECKPOINT - This should ALWAYS execute after the if/elseif/else block
+        $this->eventLogger->log('info', "✓✓✓ CHECKPOINT: Reached AFTER BYPASS/IF/ELSE block. messageCount = {$messageCount}", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: ✓✓✓ CHECKPOINT: Reached AFTER BYPASS/IF/ELSE block. messageCount = {$messageCount}");
         
         // Log detailed info for debugging
         $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);

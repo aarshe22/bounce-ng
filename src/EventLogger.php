@@ -10,23 +10,28 @@ class EventLogger {
     }
 
     public function log($severity, $message, $userId = null, $mailboxId = null, $bounceId = null, $metadata = null) {
-        $stmt = $this->db->prepare("
-            INSERT INTO events_log (event_type, severity, message, user_id, mailbox_id, bounce_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ");
+        try {
+            $stmt = $this->db->prepare("
+                INSERT INTO events_log (event_type, severity, message, user_id, mailbox_id, bounce_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
 
-        $eventType = $this->determineEventType($severity, $message);
-        $metadataJson = $metadata ? json_encode($metadata) : null;
+            $eventType = $this->determineEventType($severity, $message);
+            $metadataJson = $metadata ? json_encode($metadata) : null;
 
-        $stmt->execute([
-            $eventType,
-            $severity,
-            $message,
-            $userId,
-            $mailboxId,
-            $bounceId,
-            $metadataJson
-        ]);
+            $stmt->execute([
+                $eventType,
+                $severity,
+                $message,
+                $userId,
+                $mailboxId,
+                $bounceId,
+                $metadataJson
+            ]);
+        } catch (\Exception $e) {
+            // Fallback to error_log if database write fails
+            error_log("EventLogger ERROR: Failed to write log - " . $e->getMessage() . " | Message: " . $message);
+        }
     }
 
     private function determineEventType($severity, $message) {
