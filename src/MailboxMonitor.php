@@ -275,12 +275,13 @@ class MailboxMonitor {
             \imap_errors();
             
             // Try different search criteria - imap_search is often more reliable
-            $searchOptions = ['ALL', '1:*'];
+            // Note: '1:*' is NOT a valid imap_search criterion - removed it
+            $searchOptions = ['ALL', 'UNSEEN', 'SEEN', 'UNDELETED'];
             foreach ($searchOptions as $criteria) {
                 $searchResult = @\imap_search($this->imapConnection, $criteria);
                 if ($searchResult && is_array($searchResult) && count($searchResult) > 0) {
                     $messageCount = count($searchResult);
-                    $this->eventLogger->log('info', "Message count from imap_search('{$criteria}'): {$messageCount}", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "SUCCESS: Message count from imap_search('{$criteria}'): {$messageCount}", null, $this->mailbox['id']);
                     break;
                 }
             }
@@ -309,12 +310,67 @@ class MailboxMonitor {
                 }
             }
             
-            // Last resort: try to fetch message 1 to see if it exists
+            // Last resort: try to fetch messages sequentially to see if any exist
+            // Some IMAP servers don't support search but messages exist
             if ($messageCount == 0) {
-                $testHeader = @\imap_fetchheader($this->imapConnection, 1);
-                if ($testHeader) {
-                    // If we can fetch header, there's at least one message
-                    // Try to count by attempting to fetch headers sequentially
+                $this->eventLogger->log('info', "Trying sequential message fetch as last resort...", null, $this->mailbox['id']);
+                $foundMessages = 0;
+                // Try fetching first 20 messages to see if any exist
+                for ($msgNum = 1; $msgNum <= 20; $msgNum++) {
+                    $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
+                    if ($testHeader && !empty(trim($testHeader))) {
+                        $foundMessages = $msgNum;
+                        $this->eventLogger->log('debug', "Found message {$msgNum} by testing imap_fetchheader()", null, $this->mailbox['id']);
+                    } else {
+                        // If we found some messages but this one doesn't exist, we've found the count
+                        if ($foundMessages > 0) {
+                            $messageCount = $foundMessages;
+                            $this->eventLogger->log('info', "Found {$messageCount} messages by sequential testing (stopped at message " . ($msgNum) . ")", null, $this->mailbox['id']);
+                            break;
+                        }
+                    }
+                }
+                
+                // If we found messages but didn't get exact count, try to find the end
+                if ($foundMessages > 0 && $messageCount == 0) {
+                    // Binary search for the last message
+                    $low = $foundMessages;
+                    $high = 1000; // Reasonable upper limit
+                    $lastFound = $foundMessages;
+                    
+                    // First, find a reasonable upper bound
+                    for ($test = $foundMessages + 10; $test <= 1000; $test += 10) {
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $test);
+                        if ($testHeader && !empty(trim($testHeader))) {
+                            $lastFound = $test;
+                        } else {
+                            $high = $test;
+                            break;
+                        }
+                    }
+                    
+                    // Binary search between last found and high
+                    while ($high - $low > 1) {
+                        $mid = intval(($low + $high) / 2);
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $mid);
+                        if ($testHeader && !empty(trim($testHeader))) {
+                            $low = $mid;
+                            $lastFound = $mid;
+                        } else {
+                            $high = $mid;
+                        }
+                    }
+                    
+                    $messageCount = $lastFound;
+                    $this->eventLogger->log('info', "Found {$messageCount} messages by sequential/binary search", null, $this->mailbox['id']);
+                }
+                
+                // Original fallback code (if sequential didn't work):
+                if ($messageCount == 0) {
+                    $testHeader = @\imap_fetchheader($this->imapConnection, 1);
+                    if ($testHeader) {
+                        // If we can fetch header, there's at least one message
+                        // Try to count by attempting to fetch headers sequentially
                     $testCount = 0;
                     for ($i = 1; $i <= 1000; $i++) {
                         $testHdr = @\imap_fetchheader($this->imapConnection, $i);
