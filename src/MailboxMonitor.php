@@ -403,12 +403,14 @@ class MailboxMonitor {
                 
                 // Part 0 = headers
                 $rawHeader = @\imap_fetchbody($this->imapConnection, $uid, '0', FT_UID);
-                if ($rawHeader === false) {
+                // Check for both false and empty string - imap_fetchbody can return empty string if part doesn't exist
+                if ($rawHeader === false || $rawHeader === '') {
                     // Fallback to imap_fetchheader
                     $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
                 }
                 
-                if (!$rawHeader) {
+                // Final check - if still empty/false after fallback, skip this message
+                if (!$rawHeader || $rawHeader === '') {
                     $this->eventLogger->log('warning', "Could not fetch header for message UID {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
