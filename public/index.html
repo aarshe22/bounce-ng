@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bounce Monitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+</head>
+<body data-theme="light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-envelope-exclamation"></i> Bounce Monitor</a>
+            <div class="d-flex align-items-center">
+                <button class="btn btn-link text-white me-2" id="themeToggle" title="Toggle theme">
+                    <i class="bi bi-sun" id="themeIcon"></i>
+                </button>
+                <span class="navbar-text text-white me-3" id="headerStats"></span>
+                <div class="dropdown">
+                    <button class="btn btn-link text-white dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="bi bi-person-circle"></i> <span id="userName"></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#" id="userManagementBtn"><i class="bi bi-people"></i> User Management</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="/logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid p-3" style="height: calc(100vh - 56px);">
+        <div class="row h-100">
+            <!-- Top 66% - Two Panels -->
+            <div class="col-12" style="height: 66%;">
+                <div class="row h-100">
+                    <!-- Left Panel - Functions -->
+                    <div class="col-6 h-100">
+                        <div class="card h-100">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-gear"></i> Controls</h5>
+                            </div>
+                            <div class="card-body overflow-auto">
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="testModeToggle">
+                                        <label class="form-check-label" for="testModeToggle">Test Mode</label>
+                                    </div>
+                                    <small class="text-muted">When enabled, all notifications go to override email</small>
+                                </div>
+
+                                <div class="mb-3" id="testModeOverride" style="display: none;">
+                                    <label class="form-label">Override Email</label>
+                                    <input type="email" class="form-control" id="testModeOverrideEmail" placeholder="test@example.com">
+                                    <button class="btn btn-sm btn-primary mt-2" onclick="saveTestModeSettings()">Save</button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="notificationModeToggle">
+                                        <label class="form-check-label" for="notificationModeToggle">Real-time Notifications</label>
+                                    </div>
+                                    <small class="text-muted">When disabled, notifications are queued for manual sending</small>
+                                </div>
+
+                                <hr>
+
+                                <div class="mb-3">
+                                    <button class="btn btn-primary w-100" onclick="showAddMailboxModal()">
+                                        <i class="bi bi-plus-circle"></i> Add Mailbox
+                                    </button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <button class="btn btn-success w-100" onclick="runProcessing()">
+                                        <i class="bi bi-play-circle"></i> Run Processing
+                                    </button>
+                                </div>
+
+                                <hr>
+
+                                <h6>Mailboxes</h6>
+                                <div id="mailboxList" class="list-group"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Panel - Dashboard -->
+                    <div class="col-6 h-100">
+                        <div class="card h-100">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Dashboard</h5>
+                            </div>
+                            <div class="card-body overflow-auto">
+                                <div class="row mb-3">
+                                    <div class="col-6">
+                                        <div class="card bg-primary text-white">
+                                            <div class="card-body">
+                                                <h6>Top Domains</h6>
+                                                <div id="topDomains"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="card bg-info text-white">
+                                            <div class="card-body">
+                                                <h6>Top SMTP Codes</h6>
+                                                <div id="topSmtpCodes"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <h6>Notification Queue</h6>
+                                    <div id="notificationQueue"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom 33% - Event Log -->
+            <div class="col-12" style="height: 33%;">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> Event Log</h5>
+                        <div>
+                            <select class="form-select form-select-sm d-inline-block w-auto me-2" id="eventFilter">
+                                <option value="">All Events</option>
+                                <option value="info">Info</option>
+                                <option value="success">Success</option>
+                                <option value="warning">Warning</option>
+                                <option value="error">Error</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" id="pauseLogBtn" onclick="toggleLogPause()">
+                                <i class="bi bi-pause"></i> Pause
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body overflow-auto" id="eventLog" style="font-family: monospace; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Mailbox Modal -->
+    <div class="modal fade" id="mailboxModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="mailboxModalTitle">Add Mailbox</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="mailboxForm">
+                        <input type="hidden" id="mailboxId">
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" id="mailboxName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="mailboxEmail" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">IMAP Server</label>
+                                <input type="text" class="form-control" id="mailboxServer" required>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Port</label>
+                                <input type="number" class="form-control" id="mailboxPort" required>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Protocol</label>
+                                <select class="form-select" id="mailboxProtocol" required>
+                                    <option value="none">None</option>
+                                    <option value="ssl">SSL</option>
+                                    <option value="tls">TLS</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" id="mailboxUsername" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-control" id="mailboxPassword" required>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">INBOX Folder</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="mailboxInbox" value="INBOX" required>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="browseFolders('inbox')">Browse</button>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Processed Folder</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="mailboxProcessed" value="Processed" required>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="browseFolders('processed')">Browse</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Problem Folder</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="mailboxProblem" value="Problem" required>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="browseFolders('problem')">Browse</button>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Skipped Folder</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="mailboxSkipped" value="Skipped" required>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="browseFolders('skipped')">Browse</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="mailboxEnabled" checked>
+                                <label class="form-check-label" for="mailboxEnabled">Enabled</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" onclick="testMailboxConnection()">Test Connection</button>
+                    <button type="button" class="btn btn-primary" onclick="saveMailbox()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Browser Modal -->
+    <div class="modal fade" id="folderModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Select Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="folderList" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Template Modal -->
+    <div class="modal fade" id="templateModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Notification Template</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Subject</label>
+                        <input type="text" class="form-control" id="templateSubject">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Body</label>
+                        <textarea class="form-control" id="templateBody" rows="10"></textarea>
+                        <small class="text-muted">Available variables: {{original_to}}, {{original_cc}}, {{original_subject}}, {{bounce_date}}, {{smtp_code}}, {{smtp_reason}}, {{recipient_domain}}, {{recommendation}}</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveTemplate()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Management Modal -->
+    <div class="modal fade" id="userModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">User Management</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Email</th>
+                                    <th>Name</th>
+                                    <th>Provider</th>
+                                    <th>Admin</th>
+                                    <th>Active</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,103 @@
+:root {
+    --bs-primary: #0d6efd;
+    --bs-success: #198754;
+    --bs-warning: #ffc107;
+    --bs-danger: #dc3545;
+    --bs-info: #0dcaf0;
+}
+
+[data-theme="dark"] {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #e0e0e0;
+    --bs-card-bg: #2d2d2d;
+    --bs-border-color: #404040;
+}
+
+[data-theme="dark"] .card {
+    background-color: var(--bs-card-bg);
+    border-color: var(--bs-border-color);
+    color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+    background-color: #3a3a3a;
+    border-color: var(--bs-border-color);
+    color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .list-group-item {
+    background-color: #3a3a3a;
+    border-color: var(--bs-border-color);
+    color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .table {
+    color: var(--bs-body-color);
+}
+
+[data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > td {
+    background-color: #2d2d2d;
+}
+
+.event-log {
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.event-log .event {
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.25rem;
+    border-left: 3px solid;
+    font-size: 0.85rem;
+}
+
+.event.info {
+    border-color: var(--bs-info);
+    background-color: rgba(13, 202, 240, 0.1);
+}
+
+.event.success {
+    border-color: var(--bs-success);
+    background-color: rgba(25, 135, 84, 0.1);
+}
+
+.event.warning {
+    border-color: var(--bs-warning);
+    background-color: rgba(255, 193, 7, 0.1);
+}
+
+.event.error {
+    border-color: var(--bs-danger);
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.badge-trust {
+    font-size: 0.75rem;
+}
+
+.badge-trust.high {
+    background-color: var(--bs-success);
+}
+
+.badge-trust.medium {
+    background-color: var(--bs-warning);
+}
+
+.badge-trust.low {
+    background-color: var(--bs-danger);
+}
+
+.mailbox-item {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.mailbox-item:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .mailbox-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+

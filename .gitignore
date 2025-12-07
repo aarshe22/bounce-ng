@@ -1,0 +1,9 @@
+/vendor/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.htaccess.local
+node_modules/
+.DS_Store
+
