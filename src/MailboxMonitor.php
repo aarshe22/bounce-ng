@@ -472,7 +472,8 @@ class MailboxMonitor {
                 $this->moveMessage($uid, $processed, true); // true = use UID
                 $processedCount++;
 
-                $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: " . count($originalCc ?? [])) . " addresses)", null, $this->mailbox['id'], $bounceId);
+                $ccCount = is_array($originalCc) ? count($originalCc) : 0;
+                $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: {$ccCount} addresses)", null, $this->mailbox['id'], $bounceId);
 
             } catch (Exception $e) {
                 // Error processing, move to problem
