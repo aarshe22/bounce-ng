@@ -549,20 +549,37 @@ async function runProcessing() {
             try {
                 addEventLogMessage('info', `Processing mailbox: ${mailbox.name}...`);
                 
-                const processResponse = await fetch('/api/mailboxes.php?action=process', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mailbox_id: mailbox.id })
-                });
-                
-                if (!processResponse.ok) {
-                    throw new Error(`HTTP error! status: ${processResponse.status}`);
+                // Process mailbox - this may take a while, so we don't wait for full completion
+                // The processing happens in the background and we poll for updates
+                try {
+                    const processResponse = await fetch('/api/mailboxes.php?action=process', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mailbox_id: mailbox.id })
+                    });
+                    
+                    if (processResponse.ok) {
+                        const processData = await processResponse.json();
+                        if (processData.success) {
+                            if (processData.status === 'processing') {
+                                // Processing started, will continue in background
+                                addEventLogMessage('info', `Processing ${mailbox.name} in background...`);
+                            } else {
+                                const result = processData.data || {};
+                                addEventLogMessage('success', `Completed ${mailbox.name}: ${result.processed || 0} processed, ${result.skipped || 0} skipped, ${result.problems || 0} problems`);
+                            }
+                        }
+                    } else {
+                        addEventLogMessage('warning', `Processing ${mailbox.name} started (continuing in background)`);
+                    }
+                } catch (error) {
+                    // If timeout or connection error, that's OK - processing continues in background
+                    if (error.name === 'TypeError' || error.message.includes('fetch')) {
+                        addEventLogMessage('info', `Processing ${mailbox.name} started (continuing in background)`);
+                    } else {
+                        throw error;
+                    }
                 }
-                
-                const processData = await processResponse.json();
-                if (processData.success) {
-                    const result = processData.data || {};
-                    addEventLogMessage('success', `Completed ${mailbox.name}: ${result.processed || 0} processed, ${result.skipped || 0} skipped, ${result.problems || 0} problems`);
                     
                     // After processing, retroactively queue notifications for existing bounces with CC addresses
                     try {
@@ -641,6 +658,116 @@ function addEventLogMessage(severity, message) {
         // Keep only last 100 items
         while (container.children.length > 100) {
             container.removeChild(container.lastChild);
+        }
+    }
+}
+
+// Reset database - clears all data except users, relays, and mailboxes
+async function resetDatabase() {
+    if (!confirm('Are you sure you want to reset the database? This will delete ALL bounces, notifications, domains, and events. Users, relay providers, and mailbox configurations will be preserved.')) {
+        return;
+    }
+    
+    if (!confirm('This action cannot be undone. Are you absolutely sure?')) {
+        return;
+    }
+    
+    const btn = document.querySelector('button[onclick="resetDatabase()"]');
+    const originalText = btn ? btn.innerHTML : '';
+    
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
+        }
+        
+        addEventLogMessage('warning', 'Resetting database...');
+        
+        const response = await fetch('/api/mailboxes.php?action=reset-database', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', 'Database reset successfully');
+            // Reload all data
+            await Promise.all([
+                loadDashboard(),
+                loadMailboxes(),
+                loadEventLog(),
+                loadNotificationQueue()
+            ]);
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error resetting database:', error);
+        addEventLogMessage('error', 'Database reset failed: ' + error.message);
+        alert('Error: ' + error.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+
+// Reset database - clears all data except users, relays, and mailboxes
+async function resetDatabase() {
+    if (!confirm('Are you sure you want to reset the database? This will delete ALL bounces, notifications, domains, and events. Users, relay providers, and mailbox configurations will be preserved.')) {
+        return;
+    }
+    
+    if (!confirm('This action cannot be undone. Are you absolutely sure?')) {
+        return;
+    }
+    
+    const btn = document.querySelector('button[onclick="resetDatabase()"]');
+    const originalText = btn ? btn.innerHTML : '';
+    
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Resetting...';
+        }
+        
+        addEventLogMessage('warning', 'Resetting database...');
+        
+        const response = await fetch('/api/mailboxes.php?action=reset-database', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', 'Database reset successfully');
+            // Reload all data
+            await Promise.all([
+                loadDashboard(),
+                loadMailboxes(),
+                loadEventLog(),
+                loadNotificationQueue()
+            ]);
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error resetting database:', error);
+        addEventLogMessage('error', 'Database reset failed: ' + error.message);
+        alert('Error: ' + error.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         }
     }
 }

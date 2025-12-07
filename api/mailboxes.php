@@ -187,7 +187,63 @@ try {
                 $eventLogger->log('info', "Retroactively queued {$queuedCount} notifications from " . count($bounces) . " existing bounces", $_SESSION['user_id'] ?? null);
                 
                 echo json_encode(['success' => true, 'queued' => $queuedCount, 'bounces_processed' => count($bounces)]);
+            } elseif ($path === 'reset-database') {
+                // Reset database - clear all data except users, relays, and mailboxes
+                try {
+                    $db->beginTransaction();
+                    
+                    // Clear all bounces
+                    $db->exec("DELETE FROM bounces");
+                    
+                    // Clear all notifications
+                    $db->exec("DELETE FROM notifications_queue");
+                    
+                    // Clear all recipient domains
+                    $db->exec("DELETE FROM recipient_domains");
+                    
+                    // Clear all events log
+                    $db->exec("DELETE FROM events_log");
+                    
+                    // Clear SMTP codes (optional - you might want to keep these)
+                    // $db->exec("DELETE FROM smtp_codes");
+                    
+                    // Reset mailbox last_processed timestamps
+                    $db->exec("UPDATE mailboxes SET last_processed = NULL");
+                    
+                    $db->commit();
+                    
+                    $eventLogger = new EventLogger();
+                    $eventLogger->log('warning', "Database reset completed - all bounces, notifications, domains, and events cleared", $_SESSION['user_id'] ?? null);
+                    
+                    echo json_encode(['success' => true, 'message' => 'Database reset successfully']);
+                } catch (Exception $e) {
+                    $db->rollBack();
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                }
             } elseif ($path === 'process' && isset($data['mailbox_id'])) {
+                // Set longer execution time and ignore user abort for long-running processing
+                set_time_limit(300); // 5 minutes
+                ignore_user_abort(true);
+                
+                // Send headers to prevent timeout
+                header('Content-Type: application/json');
+                header('Connection: keep-alive');
+                
+                // Flush output immediately so client doesn't timeout
+                if (function_exists('fastcgi_finish_request')) {
+                    // For FastCGI, send response immediately and continue processing
+                    echo json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started']);
+                    fastcgi_finish_request();
+                } else {
+                    // For non-FastCGI, send chunked response
+                    header('Transfer-Encoding: chunked');
+                    ob_start();
+                    echo json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started']);
+                    ob_flush();
+                    flush();
+                }
+                
                 try {
                     $monitor = new MailboxMonitor($data['mailbox_id']);
                     // Don't call connect() here - processInbox() handles its own connection
@@ -202,11 +258,20 @@ try {
                     $eventLogger = new EventLogger();
                     $eventLogger->log('error', "Error processing mailbox: {$errorMsg}", $_SESSION['user_id'] ?? null, $data['mailbox_id'] ?? null);
                     http_response_code(500);
-                    echo json_encode(['success' => false, 'error' => $errorMsg]);
+                    // Error already logged, just exit
+                    if (!function_exists('fastcgi_finish_request')) {
+                        echo json_encode(['success' => false, 'error' => $errorMsg]);
+                    }
                     exit;
                 }
                 
-                // Send notifications if real-time mode
+                // Return result if not using fastcgi_finish_request
+                if (!function_exists('fastcgi_finish_request')) {
+                    echo json_encode(['success' => true, 'data' => $result]);
+                }
+                
+                // Send notifications if real-time mode (only if not using fastcgi_finish_request)
+                if (!function_exists('fastcgi_finish_request')) {
                 $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
                 $settingsStmt->execute();
                 $settings = $settingsStmt->fetch();
