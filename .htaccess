@@ -1,24 +1,28 @@
 RewriteEngine On
 RewriteBase /
 
-# Handle auth routes - map /auth/google to /auth/google.php (must come first)
-RewriteCond %{REQUEST_URI} ^/auth/([^/]+)$ [NC]
-RewriteCond %{DOCUMENT_ROOT}/auth/$1.php -f
-RewriteRule ^auth/([^/]+)$ /auth/$1.php [L]
+# Remove trailing slashes (except for root)
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} (.+)/$
+RewriteRule ^ %1 [R=301,L]
 
 # Handle auth callback routes - map /auth/google/callback to /auth/google/callback.php
 RewriteCond %{REQUEST_URI} ^/auth/([^/]+)/callback$ [NC]
 RewriteCond %{DOCUMENT_ROOT}/auth/$1/callback.php -f
 RewriteRule ^auth/([^/]+)/callback$ /auth/$1/callback.php [L]
 
+# Handle auth routes - map /auth/google to /auth/google.php (must come after callback)
+RewriteCond %{REQUEST_URI} ^/auth/([^/]+)$ [NC]
+RewriteCond %{DOCUMENT_ROOT}/auth/$1.php -f
+RewriteRule ^auth/([^/]+)$ /auth/$1.php [L]
+
 # Handle api routes - map /api/endpoint to /api/endpoint.php if file exists
 RewriteCond %{REQUEST_URI} ^/api/([^/]+)$ [NC]
 RewriteCond %{DOCUMENT_ROOT}/api/$1.php -f
 RewriteRule ^api/([^/]+)$ /api/$1.php [L]
 
-# Skip rewriting if the file or directory exists
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
+# Skip rewriting if the file exists
+RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^ - [L]
 
 # Skip rewriting for specific file paths
