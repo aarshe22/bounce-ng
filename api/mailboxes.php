@@ -189,6 +189,7 @@ try {
                 echo json_encode(['success' => true, 'queued' => $queuedCount, 'bounces_processed' => count($bounces)]);
             } elseif ($path === 'reset-database') {
                 // Reset database - clear all data except users, relays, and mailboxes
+                $auth->requireAdmin();
                 try {
                     $db->beginTransaction();
                     
@@ -217,7 +218,9 @@ try {
                     
                     echo json_encode(['success' => true, 'message' => 'Database reset successfully']);
                 } catch (Exception $e) {
-                    $db->rollBack();
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
                     http_response_code(500);
                     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
@@ -267,39 +270,36 @@ try {
                 
                 // Return result if not using fastcgi_finish_request
                 if (!function_exists('fastcgi_finish_request')) {
+                    // Send notifications if real-time mode
+                    $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
+                    $settingsStmt->execute();
+                    $settings = $settingsStmt->fetch();
+                    $realTime = !$settings || $settings['value'] === 'realtime';
+                    
+                    if ($realTime) {
+                        // Get relay provider from mailbox
+                        $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
+                        $mailboxStmt->execute([$data['mailbox_id']]);
+                        $mailbox = $mailboxStmt->fetch();
+                        $relayProviderId = $mailbox['relay_provider_id'] ?? null;
+                        
+                        $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
+                        $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
+                        $testModeStmt->execute();
+                        $testMode = $testModeStmt->fetch();
+                        $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
+                        $overrideEmailStmt->execute();
+                        $overrideEmail = $overrideEmailStmt->fetch();
+                        
+                        $notificationSender->setTestMode(
+                            $testMode && $testMode['value'] === '1',
+                            $overrideEmail ? $overrideEmail['value'] : ''
+                        );
+                        $notificationSender->sendPendingNotifications(true);
+                    }
+                    
                     echo json_encode(['success' => true, 'data' => $result]);
                 }
-                
-                // Send notifications if real-time mode (only if not using fastcgi_finish_request)
-                if (!function_exists('fastcgi_finish_request')) {
-                $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
-                $settingsStmt->execute();
-                $settings = $settingsStmt->fetch();
-                $realTime = !$settings || $settings['value'] === 'realtime';
-                
-                if ($realTime) {
-                    // Get relay provider from mailbox
-                    $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
-                    $mailboxStmt->execute([$data['mailbox_id']]);
-                    $mailbox = $mailboxStmt->fetch();
-                    $relayProviderId = $mailbox['relay_provider_id'] ?? null;
-                    
-                    $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
-                    $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
-                    $testModeStmt->execute();
-                    $testMode = $testModeStmt->fetch();
-                    $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
-                    $overrideEmailStmt->execute();
-                    $overrideEmail = $overrideEmailStmt->fetch();
-                    
-                    $notificationSender->setTestMode(
-                        $testMode && $testMode['value'] === '1',
-                        $overrideEmail ? $overrideEmail['value'] : ''
-                    );
-                    $notificationSender->sendPendingNotifications(true);
-                }
-                
-                echo json_encode(['success' => true, 'data' => $result]);
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);
