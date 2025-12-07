@@ -105,12 +105,18 @@ try {
                 try {
                     $monitor = new MailboxMonitor($data['mailbox_id']);
                     // Don't call connect() here - processInbox() handles its own connection
+                    $eventLogger = new EventLogger();
+                    $eventLogger->log('info', "Starting mailbox processing for mailbox ID: {$data['mailbox_id']}", $_SESSION['user_id'] ?? null, $data['mailbox_id']);
                     $result = $monitor->processInbox();
                     $monitor->disconnect();
+                    $eventLogger->log('info', "Mailbox processing completed successfully", $_SESSION['user_id'] ?? null, $data['mailbox_id']);
                 } catch (Exception $e) {
-                    error_log("Error processing mailbox: " . $e->getMessage());
+                    $errorMsg = $e->getMessage();
+                    error_log("Error processing mailbox: " . $errorMsg);
+                    $eventLogger = new EventLogger();
+                    $eventLogger->log('error', "Error processing mailbox: {$errorMsg}", $_SESSION['user_id'] ?? null, $data['mailbox_id'] ?? null);
                     http_response_code(500);
-                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                    echo json_encode(['success' => false, 'error' => $errorMsg]);
                     exit;
                 }
                 

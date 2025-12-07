@@ -159,6 +159,8 @@ class MailboxMonitor {
             throw new Exception("Folder '{$inbox}' not found. Available folders: {$foldersList}");
         }
         
+        $this->eventLogger->log('info', "About to get status for folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
+        
         // Get message count BEFORE selecting (using imap_status on the mailbox path)
         // This works even if the mailbox isn't selected
         $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
@@ -174,11 +176,18 @@ class MailboxMonitor {
             $this->eventLogger->log('warning', "imap_status failed before selection: {$error}", null, $this->mailbox['id']);
         }
         
+        $this->eventLogger->log('info', "About to select folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
+        
         // Select the folder using the actual mailbox path - try imap_select first (more reliable)
         $result = @imap_select($this->imapConnection, $actualMailboxPath);
+        $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false'), null, $this->mailbox['id']);
+        
         if (!$result) {
+            $error = imap_last_error();
+            $this->eventLogger->log('warning', "imap_select failed: {$error}, trying imap_reopen", null, $this->mailbox['id']);
             // Fallback to imap_reopen
             $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
+            $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false'), null, $this->mailbox['id']);
         }
         
         if (!$result) {
