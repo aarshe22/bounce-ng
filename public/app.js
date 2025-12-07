@@ -13,13 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadEventLog();
     loadNotificationQueue();
     
-    // Start polling for events - poll more frequently for real-time updates
-    eventPollInterval = setInterval(() => {
-        if (!logPaused) {
-            loadEventLog();
-        }
-    }, 1000); // Poll every 1 second for better real-time feel
-    
+    // No auto-refresh for event log - user can manually refresh or it auto-refreshes during processing
     // Poll dashboard every 10 seconds
     setInterval(loadDashboard, 10000);
     setInterval(loadNotificationQueue, 5000);
@@ -564,70 +558,45 @@ async function runProcessing() {
             return;
         }
         
-        // Increase polling frequency during processing for real-time updates
-        const originalInterval = eventPollInterval;
-        clearInterval(eventPollInterval);
-        // Poll more frequently during processing to see real-time progress
+        // Start auto-refresh during processing for real-time updates
+        // Clear any existing interval first
+        if (eventPollInterval) {
+            clearInterval(eventPollInterval);
+        }
+        // Poll frequently during processing to see real-time progress
         eventPollInterval = setInterval(() => {
             if (!logPaused) {
                 loadEventLog();
             }
-        }, 1000); // Poll every 1 second during processing (was 500ms, but 1s is more reasonable)
+        }, 1000); // Poll every 1 second during processing
         
-        // Process all mailboxes in parallel - fire off requests immediately
-        // Processing happens server-side in background, we don't wait
-        const processPromises = enabledMailboxes.map(async (mailbox) => {
-            try {
-                addEventLogMessage('info', `Starting processing for mailbox: ${mailbox.name}...`);
-                
-                // Use AbortController with short timeout - we don't want to wait
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-                
-                try {
-                    const processResponse = await fetch('/api/mailboxes.php?action=process', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailbox_id: mailbox.id }),
-                        signal: controller.signal
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (processResponse.ok) {
-                        try {
-                            const processData = await processResponse.json();
-                            if (processData.success && processData.status === 'processing') {
-                                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
-                            }
-                        } catch (e) {
-                            // Response might not be JSON if fastcgi_finish_request was used - that's OK
-                            addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
-                        }
-                    } else {
-                        addEventLogMessage('info', `Processing ${mailbox.name} request sent (continuing in background)`);
-                    }
-                } catch (error) {
-                    // Timeout/abort is EXPECTED and OK - processing continues in background
-                    if (error.name === 'AbortError' || error.name === 'TypeError' || 
-                        error.message.includes('fetch') || error.message.includes('timeout') ||
-                        error.message.includes('aborted')) {
-                        addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background (request sent)`);
-                    } else {
-                        addEventLogMessage('warning', `Error starting ${mailbox.name}: ${error.message}`);
-                        console.error('Processing error:', error);
-                    }
-                }
-            } catch (error) {
-                console.error(`Error processing mailbox ${mailbox.name}:`, error);
-                addEventLogMessage('warning', `Error starting ${mailbox.name}: ${error.message}`);
-            }
+        // Process all mailboxes - TRUE fire-and-forget
+        // Send requests and immediately continue - don't wait for ANY response
+        enabledMailboxes.forEach((mailbox) => {
+            addEventLogMessage('info', `Starting processing for mailbox: ${mailbox.name}...`);
+            
+            // TRUE fire-and-forget: send request, don't wait, don't handle response
+            // Processing happens server-side in background
+            fetch('/api/mailboxes.php?action=process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mailbox_id: mailbox.id }),
+                // No signal, no timeout handling - just send and forget
+            })
+            .then(() => {
+                // Response received (or not) - doesn't matter, processing continues server-side
+                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background`);
+            })
+            .catch(() => {
+                // Any error is fine - request was sent, processing continues server-side
+                addEventLogMessage('info', `✓ Processing ${mailbox.name} started in background (request sent)`);
+            });
+            
+            // Show message immediately - don't wait
+            addEventLogMessage('info', `✓ Processing ${mailbox.name} request sent (running in background)`);
         });
         
-        // Fire off all processing requests (don't await - let them run in background)
-        Promise.all(processPromises).then(() => {
-            addEventLogMessage('info', 'All processing requests sent. Watch event log for real-time progress...');
-        });
+        addEventLogMessage('info', 'All processing requests sent. Watch event log for real-time progress...');
         
         // Keep button disabled - processing happens in background
         // Re-enable after a short delay (processing continues server-side)
@@ -637,13 +606,14 @@ async function runProcessing() {
                 runBtn.innerHTML = originalText;
             }
             
-            // Restore normal polling interval
-            clearInterval(eventPollInterval);
-            eventPollInterval = setInterval(() => {
-                if (!logPaused) {
-                    loadEventLog();
+            // Stop auto-refresh after processing starts (user can manually refresh)
+            // Keep it running for a bit longer to catch initial progress, then stop
+            setTimeout(() => {
+                if (eventPollInterval) {
+                    clearInterval(eventPollInterval);
+                    eventPollInterval = null;
                 }
-            }, 2000); // Normal polling: every 2 seconds
+            }, 30000); // Stop auto-refresh after 30 seconds (processing may still be running)
             
             // Refresh data
             loadMailboxes();
@@ -662,13 +632,11 @@ async function runProcessing() {
             runBtn.innerHTML = originalText;
         }
         
-        // Restore polling interval on error
-        clearInterval(eventPollInterval);
-        eventPollInterval = setInterval(() => {
-            if (!logPaused) {
-                loadEventLog();
-            }
-        }, 2000);
+        // Stop auto-refresh on error (no polling needed)
+        if (eventPollInterval) {
+            clearInterval(eventPollInterval);
+            eventPollInterval = null;
+        }
     }
 }
 
@@ -874,15 +842,41 @@ function updateHeaderStats(stats) {
 // Event Log
 async function loadEventLog() {
     try {
-        const filter = document.getElementById('eventFilter').value;
-        const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
-        const response = await fetch(url);
-        const data = await response.json();
-        if (data.success) {
-            displayEventLog(data.data);
+        const refreshBtn = document.getElementById('refreshLogBtn');
+        if (refreshBtn) {
+            // Show loading state on refresh button
+            const originalHtml = refreshBtn.innerHTML;
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="spinner-border spinner-border-sm"></span>';
+            
+            const filter = document.getElementById('eventFilter').value;
+            const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.success) {
+                displayEventLog(data.data);
+            }
+            
+            // Restore button state
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = originalHtml;
+        } else {
+            // Fallback if button doesn't exist yet
+            const filter = document.getElementById('eventFilter').value;
+            const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.success) {
+                displayEventLog(data.data);
+            }
         }
     } catch (error) {
         console.error('Error loading events:', error);
+        const refreshBtn = document.getElementById('refreshLogBtn');
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
+        }
     }
 }
 

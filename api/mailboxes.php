@@ -19,6 +19,7 @@ $auth->requireAuth();
 try {
     switch ($method) {
         case 'GET':
+            header('Content-Type: application/json');
             if ($path === 'list') {
                 $stmt = $db->prepare("
                     SELECT m.*, rp.name as relay_provider_name 
@@ -72,9 +73,12 @@ try {
             break;
 
         case 'POST':
+            // Content-Type will be set per-endpoint
+            // Process endpoint sets it before fastcgi_finish_request for background processing
             $data = json_decode(file_get_contents('php://input'), true);
             
             if ($path === 'create') {
+                header('Content-Type: application/json');
                 $auth->requireAdmin();
                 
                 $stmt = $db->prepare("
@@ -107,6 +111,7 @@ try {
                 
                 echo json_encode(['success' => true, 'id' => $mailboxId]);
             } elseif ($path === 'retroactive-queue') {
+                header('Content-Type: application/json');
                 // First, check how many bounces exist and how many have CC addresses
                 $checkStmt = $db->query("
                     SELECT 
@@ -193,6 +198,7 @@ try {
                 
                 echo json_encode(['success' => true, 'queued' => $queuedCount, 'bounces_processed' => count($bounces)]);
             } elseif ($path === 'reset-database') {
+                header('Content-Type: application/json');
                 // Reset database - clear all data except users, relays, and mailboxes
                 $auth->requireAdmin();
                 try {
@@ -230,100 +236,93 @@ try {
                     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
             } elseif ($path === 'process' && isset($data['mailbox_id'])) {
-                // Set longer execution time and ignore user abort for long-running processing
-                // Processing 165+ messages with aggressive parsing can take 10+ minutes
-                set_time_limit(1800); // 30 minutes - plenty of time for large batches
+                // CRITICAL: Send response IMMEDIATELY before ANY processing or database operations
+                // This is the key to background processing - client must disconnect first
+                
+                // Store mailbox_id for later use
+                $mailboxId = $data['mailbox_id'];
+                
+                // Disable ALL output buffering - must be absolute first
+                // Flush any existing buffers first, then disable
+                while (ob_get_level() > 0) {
+                    ob_end_flush();
+                }
+                
+                // Disable output buffering at PHP level
+                if (ini_get('output_buffering')) {
+                    ini_set('output_buffering', 'Off');
+                }
+                
+                // Send headers
+                header('Content-Type: application/json');
+                header('Connection: close');
+                
+                // Prepare and send response IMMEDIATELY - before ANY other operations
+                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started in background']);
+                header('Content-Length: ' . strlen($response));
+                echo $response;
+                
+                // Force immediate flush - critical for background processing
+                if (ob_get_level() > 0) {
+                    ob_end_flush();
+                }
+                flush();
+                
+                // For FastCGI, finish request NOW - client disconnects, server continues
+                if (function_exists('fastcgi_finish_request')) {
+                    fastcgi_finish_request();
+                    // Client is now disconnected - processing continues in background
+                }
+                
+                // NOW set execution limits (client already disconnected)
+                set_time_limit(1800); // 30 minutes
                 ini_set('max_execution_time', 1800);
                 ignore_user_abort(true);
                 
-                // Disable output buffering to ensure immediate response
-                while (ob_get_level()) {
-                    ob_end_clean();
-                }
-                
-                // Send headers FIRST before any output
-                header('Content-Type: application/json');
-                header('Connection: close'); // Use 'close' not 'keep-alive' for background processing
-                header('Content-Length: 0'); // Let PHP calculate, but signal we're done
-                
-                // Prepare response
-                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started in background']);
-                $responseLength = strlen($response);
-                header('Content-Length: ' . $responseLength);
-                
-                // Flush output immediately so client doesn't timeout
-                if (function_exists('fastcgi_finish_request')) {
-                    // For FastCGI, send response immediately and continue processing in background
-                    echo $response;
-                    // Ensure all output is flushed
-                    if (ob_get_level()) {
-                        ob_end_flush();
-                    }
-                    flush();
-                    // Finish request - client gets response immediately, server continues processing
-                    fastcgi_finish_request();
-                } else {
-                    // For non-FastCGI (mod_php), send response and flush
-                    echo $response;
-                    if (ob_get_level()) {
-                        ob_end_flush();
-                    }
-                    flush();
-                    // Note: Without FastCGI, processing may still block, but response is sent first
-                }
-                
+                // Start processing in background (client has already received response)
                 try {
-                    $monitor = new MailboxMonitor($data['mailbox_id']);
-                    // Don't call connect() here - processInbox() handles its own connection
+                    $monitor = new MailboxMonitor($mailboxId);
                     $eventLogger = new EventLogger();
-                    $eventLogger->log('info', "Starting mailbox processing for mailbox ID: {$data['mailbox_id']}", $_SESSION['user_id'] ?? null, $data['mailbox_id']);
+                    $eventLogger->log('info', "Starting mailbox processing for mailbox ID: {$mailboxId}", $_SESSION['user_id'] ?? null, $mailboxId);
                     $result = $monitor->processInbox();
                     $monitor->disconnect();
-                    $eventLogger->log('info', "Mailbox processing completed successfully", $_SESSION['user_id'] ?? null, $data['mailbox_id']);
+                    $eventLogger->log('info', "Mailbox processing completed successfully", $_SESSION['user_id'] ?? null, $mailboxId);
+                    
+                    // Send notifications if real-time mode (only if not using fastcgi_finish_request)
+                    if (!function_exists('fastcgi_finish_request')) {
+                        $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
+                        $settingsStmt->execute();
+                        $settings = $settingsStmt->fetch();
+                        $realTime = !$settings || $settings['value'] === 'realtime';
+                        
+                        if ($realTime) {
+                            $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
+                            $mailboxStmt->execute([$mailboxId]);
+                            $mailbox = $mailboxStmt->fetch();
+                            $relayProviderId = $mailbox['relay_provider_id'] ?? null;
+                            
+                            $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
+                            $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
+                            $testModeStmt->execute();
+                            $testMode = $testModeStmt->fetch();
+                            $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
+                            $overrideEmailStmt->execute();
+                            $overrideEmail = $overrideEmailStmt->fetch();
+                            
+                            $notificationSender->setTestMode(
+                                $testMode && $testMode['value'] === '1',
+                                $overrideEmail ? $overrideEmail['value'] : ''
+                            );
+                            $notificationSender->sendPendingNotifications(true);
+                        }
+                    }
                 } catch (Exception $e) {
                     $errorMsg = $e->getMessage();
                     error_log("Error processing mailbox: " . $errorMsg);
                     $eventLogger = new EventLogger();
-                    $eventLogger->log('error', "Error processing mailbox: {$errorMsg}", $_SESSION['user_id'] ?? null, $data['mailbox_id'] ?? null);
-                    http_response_code(500);
-                    // Error already logged, just exit
-                    if (!function_exists('fastcgi_finish_request')) {
-                        echo json_encode(['success' => false, 'error' => $errorMsg]);
-                    }
+                    $eventLogger->log('error', "Error processing mailbox: {$errorMsg}", $_SESSION['user_id'] ?? null, $mailboxId ?? null);
+                    // Don't send error response - client already disconnected
                     exit;
-                }
-                
-                // Return result if not using fastcgi_finish_request
-                if (!function_exists('fastcgi_finish_request')) {
-                    // Send notifications if real-time mode
-                    $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
-                    $settingsStmt->execute();
-                    $settings = $settingsStmt->fetch();
-                    $realTime = !$settings || $settings['value'] === 'realtime';
-                    
-                    if ($realTime) {
-                        // Get relay provider from mailbox
-                        $mailboxStmt = $db->prepare("SELECT relay_provider_id FROM mailboxes WHERE id = ?");
-                        $mailboxStmt->execute([$data['mailbox_id']]);
-                        $mailbox = $mailboxStmt->fetch();
-                        $relayProviderId = $mailbox['relay_provider_id'] ?? null;
-                        
-                        $notificationSender = new \BounceNG\NotificationSender($relayProviderId);
-                        $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
-                        $testModeStmt->execute();
-                        $testMode = $testModeStmt->fetch();
-                        $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
-                        $overrideEmailStmt->execute();
-                        $overrideEmail = $overrideEmailStmt->fetch();
-                        
-                        $notificationSender->setTestMode(
-                            $testMode && $testMode['value'] === '1',
-                            $overrideEmail ? $overrideEmail['value'] : ''
-                        );
-                        $notificationSender->sendPendingNotifications(true);
-                    }
-                    
-                    echo json_encode(['success' => true, 'data' => $result]);
                 }
             } else {
                 http_response_code(400);
@@ -332,6 +331,7 @@ try {
             break;
 
         case 'PUT':
+            header('Content-Type: application/json');
             $auth->requireAdmin();
             $data = json_decode(file_get_contents('php://input'), true);
             
@@ -390,6 +390,7 @@ try {
             break;
 
         case 'DELETE':
+            header('Content-Type: application/json');
             $auth->requireAdmin();
             
             if ($path === 'delete' && isset($_GET['id'])) {
