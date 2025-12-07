@@ -269,103 +269,86 @@ class MailboxMonitor {
             }
         }
         
-        // SEQUENTIAL FETCH AS PRIMARY METHOD - Most reliable way to get ALL messages
-        // Don't trust imap_search - it may filter or miss messages
-        // Start from message 1 and keep going until we can't fetch anymore
-        $this->eventLogger->log('info', "Fetching ALL messages using sequential method (starting from message 1)...", null, $this->mailbox['id']);
+        // CRITICAL FIX: Use imap_search with 'ALL' to get ALL messages regardless of flags
+        // This ignores status flags (seen, recent, deleted, etc.) that might prevent detection
+        // UIDs are more reliable than message numbers and don't change when messages are moved
+        $this->eventLogger->log('info', "Fetching ALL messages using imap_search('ALL', SE_UID) to ignore status flags...", null, $this->mailbox['id']);
         
         $uids = [];
-        $usingUids = false; // Using message numbers for sequential fetch
+        $usingUids = true; // Always use UIDs - they're more reliable and ignore flags
         
         // Clear any previous IMAP errors
         @\imap_errors();
         
-        // Sequential fetch: start from 1 and keep going until we can't fetch anymore
-        // This is the most reliable method - it gets EVERYTHING regardless of status
-        // Use a smarter approach: keep going until we hit a long gap of missing messages
-        $maxMessages = 50000; // Reasonable upper limit
-        $consecutiveFailures = 0;
-        $maxConsecutiveFailures = 50; // Stop after 50 consecutive failures (handles gaps)
-        $lastFoundMessage = 0;
-        
-        // If server reports messages exist, be more persistent
-        $serverReportsMessages = false;
-        $reportedCount = 0;
-        if ($checkResult && isset($checkResult->Nmsgs) && $checkResult->Nmsgs > 0) {
-            $serverReportsMessages = true;
-            $reportedCount = $checkResult->Nmsgs;
-        } elseif ($status && isset($status->messages) && $status->messages > 0) {
-            $serverReportsMessages = true;
-            $reportedCount = $status->messages;
-        } elseif ($numMsg && $numMsg > 0) {
-            $serverReportsMessages = true;
-            $reportedCount = $numMsg;
-        }
-        
-        if ($serverReportsMessages) {
-            $this->eventLogger->log('info', "Server reports {$reportedCount} messages exist - will search aggressively up to message " . ($reportedCount * 2), null, $this->mailbox['id']);
-            // If server says messages exist, search at least up to 2x the reported count
-            $maxMessages = max($maxMessages, $reportedCount * 2);
-        }
-        
-        for ($msgNum = 1; $msgNum <= $maxMessages; $msgNum++) {
-            // Try to fetch the header - if it exists, we have a message
-            $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
-            $lastError = @\imap_last_error();
-            
-            if ($testHeader && !empty(trim($testHeader))) {
-                $uids[] = $msgNum;
-                $lastFoundMessage = $msgNum;
-                $consecutiveFailures = 0; // Reset failure counter
-                
-                // Log first message found
-                if (count($uids) == 1) {
-                    $this->eventLogger->log('info', "✓ Found first message at number {$msgNum}", null, $this->mailbox['id']);
-                }
-                
-                // Log progress every 25 messages for visibility
-                if (count($uids) % 25 == 0) {
-                    $this->eventLogger->log('info', "Sequential fetch: found " . count($uids) . " messages so far (currently at message {$msgNum})...", null, $this->mailbox['id']);
-                }
+        // METHOD 1: Try imap_search with ALL and SE_UID (gets ALL messages regardless of flags)
+        $searchResults = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+        if ($searchResults && is_array($searchResults) && count($searchResults) > 0) {
+            $uids = $searchResults;
+            $this->eventLogger->log('info', "✓ imap_search('ALL', SE_UID) found " . count($uids) . " messages (ignoring all status flags)", null, $this->mailbox['id']);
+        } else {
+            // METHOD 2: Try imap_search with ALL (without SE_UID - returns message numbers)
+            $this->eventLogger->log('debug', "imap_search('ALL', SE_UID) returned nothing, trying imap_search('ALL')...", null, $this->mailbox['id']);
+            $searchResults = @\imap_search($this->imapConnection, 'ALL');
+            if ($searchResults && is_array($searchResults) && count($searchResults) > 0) {
+                $uids = $searchResults;
+                $usingUids = false; // Using message numbers
+                $this->eventLogger->log('info', "✓ imap_search('ALL') found " . count($uids) . " messages (using message numbers)", null, $this->mailbox['id']);
             } else {
-                $consecutiveFailures++;
+                // METHOD 3: Fallback to sequential fetch using UIDs
+                // Some servers don't support SE_UID, so we'll try sequential UID fetch
+                $this->eventLogger->log('debug', "imap_search('ALL') returned nothing, trying sequential UID fetch...", null, $this->mailbox['id']);
                 
-                // Only stop if:
-                // 1. We've found at least one message (so we know messages exist)
-                // 2. We've hit the max consecutive failures (we're past the end)
-                // 3. We're far enough past the last found message (safety check)
-                if (count($uids) > 0 && $consecutiveFailures >= $maxConsecutiveFailures) {
-                    $this->eventLogger->log('info', "Reached end of messages after {$consecutiveFailures} consecutive failures (last found: {$lastFoundMessage}). Found " . count($uids) . " total messages.", null, $this->mailbox['id']);
-                    break;
+                // Get the highest UID first to know the range
+                $mailboxInfo = @\imap_status($this->imapConnection, $actualMailboxPath, SA_UIDNEXT | SA_UIDVALIDITY);
+                $maxUid = 0;
+                if ($mailboxInfo && isset($mailboxInfo->uidnext) && $mailboxInfo->uidnext > 0) {
+                    $maxUid = $mailboxInfo->uidnext - 1; // uidnext is the next UID, so subtract 1
+                } else {
+                    // If we can't get uidnext, try a large range
+                    $maxUid = 100000;
                 }
                 
-                // If we haven't found any messages yet, keep trying longer
-                // CRITICAL: Don't trust imap_status - it may report 0 even when messages exist
-                // Some IMAP servers have issues with message counting, especially for unread messages
-                // We'll search aggressively regardless of what the server reports
-                if (count($uids) == 0) {
-                    // Always be persistent - search up to a reasonable limit
-                    // Even if server says 0 messages, messages might exist
-                    if ($msgNum == 200) {
-                        $this->eventLogger->log('info', "Searched 200 messages with no results, but continuing search (server may report incorrect counts)...", null, $this->mailbox['id']);
-                    }
+                $this->eventLogger->log('debug', "Sequential UID fetch: checking UIDs 1 to {$maxUid}...", null, $this->mailbox['id']);
+                
+                $consecutiveFailures = 0;
+                $maxConsecutiveFailures = 50;
+                $lastFoundUid = 0;
+                
+                for ($uid = 1; $uid <= $maxUid; $uid++) {
+                    // Try to fetch the header using UID - this ignores flags
+                    $testHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
+                    $lastError = @\imap_last_error();
                     
-                    if ($msgNum == 500) {
-                        $this->eventLogger->log('info', "Searched 500 messages with no results, but continuing search...", null, $this->mailbox['id']);
+                    if ($testHeader && !empty(trim($testHeader))) {
+                        $uids[] = $uid;
+                        $lastFoundUid = $uid;
+                        $consecutiveFailures = 0;
+                        
+                        if (count($uids) == 1) {
+                            $this->eventLogger->log('info', "✓ Found first message at UID {$uid}", null, $this->mailbox['id']);
+                        }
+                        
+                        if (count($uids) % 25 == 0) {
+                            $this->eventLogger->log('info', "Sequential UID fetch: found " . count($uids) . " messages so far (currently at UID {$uid})...", null, $this->mailbox['id']);
+                        }
+                    } else {
+                        $consecutiveFailures++;
+                        
+                        if (count($uids) > 0 && $consecutiveFailures >= $maxConsecutiveFailures) {
+                            $this->eventLogger->log('info', "Reached end of messages after {$consecutiveFailures} consecutive failures (last found UID: {$lastFoundUid}). Found " . count($uids) . " total messages.", null, $this->mailbox['id']);
+                            break;
+                        }
+                        
+                        // If no messages found yet, keep trying
+                        if (count($uids) == 0 && $uid >= 2000) {
+                            $this->eventLogger->log('warning', "No messages found after checking 2000 UIDs. Stopping sequential UID fetch.", null, $this->mailbox['id']);
+                            break;
+                        }
                     }
-                    
-                    // Search up to 2000 messages before giving up
-                    // This handles cases where server reports 0 but messages actually exist
-                    if ($msgNum >= 2000) {
-                        $this->eventLogger->log('warning', "No messages found after 2000 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
-                        break;
-                    }
-                    
-                    // If server reports messages exist, search even more aggressively
-                    if ($serverReportsMessages && $msgNum > $reportedCount * 3) {
-                        $this->eventLogger->log('info', "Server reports {$reportedCount} messages but searched up to " . ($reportedCount * 3) . ". Continuing search...", null, $this->mailbox['id']);
-                        // Continue - don't give up yet
-                    }
+                }
+                
+                if (count($uids) > 0) {
+                    $this->eventLogger->log('info', "✓ Sequential UID fetch found " . count($uids) . " messages", null, $this->mailbox['id']);
                 }
             }
         }
