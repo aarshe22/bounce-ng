@@ -102,47 +102,83 @@ try {
                 
                 echo json_encode(['success' => true, 'id' => $mailboxId]);
             } elseif ($path === 'retroactive-queue') {
+                // First, check how many bounces exist and how many have CC addresses
+                $checkStmt = $db->query("
+                    SELECT 
+                        COUNT(*) as total_bounces,
+                        COUNT(CASE WHEN original_cc IS NOT NULL AND original_cc != '' THEN 1 END) as bounces_with_cc,
+                        COUNT(CASE WHEN original_cc IS NOT NULL AND original_cc != '' AND original_cc != 'null' THEN 1 END) as bounces_with_valid_cc
+                    FROM bounces
+                ");
+                $checkResult = $checkStmt->fetch();
+                $eventLogger = new EventLogger();
+                $eventLogger->log('info', "Bounce stats: Total: {$checkResult['total_bounces']}, With CC: {$checkResult['bounces_with_cc']}, Valid CC: {$checkResult['bounces_with_valid_cc']}", $_SESSION['user_id'] ?? null);
+                
                 // Retroactively queue notifications for ALL existing bounces that have CC addresses but no notifications
+                // Use a subquery to find bounces that don't have any notifications yet
                 $stmt = $db->query("
-                    SELECT b.id, b.original_cc, b.mailbox_id
+                    SELECT b.id, b.original_cc, b.mailbox_id, b.original_to
                     FROM bounces b
-                    LEFT JOIN notifications_queue nq ON b.id = nq.bounce_id
                     WHERE b.original_cc IS NOT NULL 
                     AND b.original_cc != ''
-                    AND nq.id IS NULL
+                    AND b.original_cc != 'null'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM notifications_queue nq 
+                        WHERE nq.bounce_id = b.id
+                    )
                 ");
                 $bounces = $stmt->fetchAll();
                 
+                $eventLogger->log('info', "Found " . count($bounces) . " bounces with CC addresses that need notifications", $_SESSION['user_id'] ?? null);
+                
                 $queuedCount = 0;
-                $eventLogger = new EventLogger();
                 
                 foreach ($bounces as $bounce) {
-                    if (!empty($bounce['original_cc'])) {
-                        // Parse CC string - extract all email addresses
-                        $ccList = $bounce['original_cc'];
-                        $emails = [];
-                        
-                        // Extract emails using regex
-                        if (preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/i', $ccList, $matches)) {
-                            $emails = array_unique(array_map('strtolower', $matches[0]));
+                    $ccList = trim($bounce['original_cc'] ?? '');
+                    if (empty($ccList) || $ccList === 'null') {
+                        continue;
+                    }
+                    
+                    $eventLogger->log('debug', "Processing bounce ID {$bounce['id']} with CC: {$ccList}", $_SESSION['user_id'] ?? null, $bounce['mailbox_id']);
+                    
+                    // Parse CC string - extract all email addresses
+                    $emails = [];
+                    
+                    // Method 1: Extract emails using regex
+                    if (preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/i', $ccList, $matches)) {
+                        $emails = array_unique(array_map('strtolower', $matches[0]));
+                    }
+                    
+                    // Method 2: If regex didn't find anything, try splitting by comma
+                    if (empty($emails)) {
+                        $parts = preg_split('/[,\s]+/', $ccList);
+                        foreach ($parts as $part) {
+                            $part = trim($part);
+                            if (filter_var($part, FILTER_VALIDATE_EMAIL)) {
+                                $emails[] = strtolower($part);
+                            }
                         }
-                        
-                        // Queue each email
-                        $queueStmt = $db->prepare("
-                            INSERT OR IGNORE INTO notifications_queue (bounce_id, recipient_email, status)
-                            VALUES (?, ?, 'pending')
-                        ");
-                        
-                        foreach ($emails as $email) {
-                            if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                                try {
-                                    $queueStmt->execute([$bounce['id'], $email]);
-                                    if ($queueStmt->rowCount() > 0) {
-                                        $queuedCount++;
-                                    }
-                                } catch (Exception $e) {
-                                    // Skip duplicates or errors
+                        $emails = array_unique($emails);
+                    }
+                    
+                    $eventLogger->log('debug', "Extracted " . count($emails) . " email addresses from CC list for bounce ID {$bounce['id']}", $_SESSION['user_id'] ?? null, $bounce['mailbox_id']);
+                    
+                    // Queue each email
+                    $queueStmt = $db->prepare("
+                        INSERT OR IGNORE INTO notifications_queue (bounce_id, recipient_email, status)
+                        VALUES (?, ?, 'pending')
+                    ");
+                    
+                    foreach ($emails as $email) {
+                        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                            try {
+                                $queueStmt->execute([$bounce['id'], $email]);
+                                if ($queueStmt->rowCount() > 0) {
+                                    $queuedCount++;
+                                    $eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounce['id']})", $_SESSION['user_id'] ?? null, $bounce['mailbox_id']);
                                 }
+                            } catch (Exception $e) {
+                                $eventLogger->log('warning', "Failed to queue notification for {$email}: {$e->getMessage()}", $_SESSION['user_id'] ?? null, $bounce['mailbox_id']);
                             }
                         }
                     }

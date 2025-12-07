@@ -499,10 +499,19 @@ class MailboxMonitor {
         $data = $parser->getParsedData();
         $originalCc = $parser->getOriginalCc();
         
+        // Store CC addresses as comma-separated string, or null if empty
+        $ccString = null;
+        if (!empty($originalCc) && is_array($originalCc) && count($originalCc) > 0) {
+            $ccString = implode(', ', $originalCc);
+            $this->eventLogger->log('debug', "Storing CC addresses for bounce: {$ccString}", null, $this->mailbox['id']);
+        } else {
+            $this->eventLogger->log('debug', "No CC addresses to store for bounce (originalCc is empty or not array)", null, $this->mailbox['id']);
+        }
+        
         $stmt->execute([
             $this->mailbox['id'],
             $parser->getOriginalTo(),
-            !empty($originalCc) ? implode(', ', $originalCc) : null,
+            $ccString,
             $parser->getOriginalSubject(),
             $parser->getOriginalSentDate(),
             date('Y-m-d H:i:s'),
