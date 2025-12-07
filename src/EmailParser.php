@@ -692,7 +692,53 @@ class EmailParser {
         // Normalize and deduplicate
         $ccAddresses = array_map('strtolower', array_map('trim', $ccAddresses));
         $ccAddresses = array_unique(array_filter($ccAddresses, function($email) {
-            return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+            // First validate it's a proper email
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                return false;
+            }
+            
+            // Filter out Outlook UUID-based tracking addresses
+            // Pattern: UUID (with or without hyphens) @ outlook.com server domains
+            // Examples:
+            // - 56778309-6384-4a0a-8411-8e41d0d02941@sa1p223mb1284.namp223.prod.outlook.com
+            // - ff64fac0d1244afda1b7c7cd27836bb6@lv8p223mb1224.namp223.prod.outlook.com
+            // - 93c7bb46-62b3-4e68-a3ec-d0185f617a36@pr3pr02mb6170.eurprd02.prod.outlook.com
+            
+            // Extract the local part (before @) and domain part
+            $parts = explode('@', $email, 2);
+            if (count($parts) !== 2) {
+                return true; // Keep if we can't parse (shouldn't happen after validation)
+            }
+            
+            $localPart = $parts[0];
+            $domain = $parts[1];
+            
+            // Check if domain is an Outlook server domain
+            // Pattern: subdomain.prod.outlook.com or similar Outlook infrastructure
+            $isOutlookServerDomain = (
+                preg_match('/\.(prod|namprd|eurprd|asprd)\.outlook\.com$/i', $domain) ||
+                preg_match('/\.(namp|eurprd|asprd|namprd)\d+\.(prod|outlook)\.com$/i', $domain) ||
+                preg_match('/^[a-z0-9]+p\d+mb\d+\.(namp|eurprd|asprd|namprd)\d+\.prod\.outlook\.com$/i', $domain)
+            );
+            
+            if ($isOutlookServerDomain) {
+                // Check if local part is a UUID (with or without hyphens)
+                // UUID format: 8-4-4-4-12 hex characters (with hyphens)
+                // Or: 32 hex characters (without hyphens)
+                $isUuid = (
+                    // UUID with hyphens: 8-4-4-4-12 pattern
+                    preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $localPart) ||
+                    // UUID without hyphens: 32 hex characters
+                    preg_match('/^[0-9a-f]{32}$/i', $localPart)
+                );
+                
+                if ($isUuid) {
+                    // This is an Outlook tracking address - filter it out
+                    return false;
+                }
+            }
+            
+            return true;
         }));
         $ccAddresses = array_values($ccAddresses);
         
