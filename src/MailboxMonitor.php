@@ -619,6 +619,7 @@ class MailboxMonitor {
             'skipped' => $skippedCount,
             'problems' => $problemCount
         ];
+        }
     }
 
     private function storeBounce($parser, $recipientDomain) {

@@ -46,11 +46,16 @@ try {
                     echo json_encode(['success' => false, 'error' => 'Mailbox not found']);
                 }
             } elseif ($path === 'folders' && isset($_GET['id'])) {
-                $monitor = new MailboxMonitor($_GET['id']);
-                $monitor->connect();
-                $folders = $monitor->getFolders();
-                $monitor->disconnect();
-                echo json_encode(['success' => true, 'data' => $folders]);
+                try {
+                    $monitor = new MailboxMonitor($_GET['id']);
+                    $monitor->connect();
+                    $folders = $monitor->getFolders();
+                    $monitor->disconnect();
+                    echo json_encode(['success' => true, 'data' => $folders]);
+                } catch (Exception $e) {
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                }
             } elseif ($path === 'test' && isset($_GET['id'])) {
                 $monitor = new MailboxMonitor($_GET['id']);
                 try {
