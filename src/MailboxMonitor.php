@@ -219,57 +219,8 @@ class MailboxMonitor {
             throw new Exception("Inbox folder '{$inbox}' not found. Available folders: {$foldersList}");
         }
         
-        $this->eventLogger->log('info', "About to select folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
-        
-        // Verify connection is still valid before selecting
-        if (!$this->imapConnection) {
-            throw new Exception("IMAP connection is null before folder selection");
-        }
-        
-        // Check if connection is still alive
-        $pingResult = @\imap_ping($this->imapConnection);
-        if (!$pingResult) {
-            $error = \imap_last_error();
-            $this->eventLogger->log('error', "IMAP connection is not alive before selection: {$error}", null, $this->mailbox['id']);
-            throw new Exception("IMAP connection is not alive: {$error}");
-        }
-        
-        // Select the folder using the actual mailbox path - try imap_reopen first (more reliable for existing connections)
-        $result = false;
-        $error = null;
-        
-        // Use imap_reopen directly (works better than imap_select for existing connections)
-        try {
-            $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
-            $error = \imap_last_error();
-            $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
-        } catch (Exception $e) {
-            $error = $e->getMessage();
-            $this->eventLogger->log('error', "imap_reopen threw exception: {$error}", null, $this->mailbox['id']);
-        } catch (\Error $e) {
-            $error = $e->getMessage();
-            $this->eventLogger->log('error', "imap_reopen threw error: {$error}", null, $this->mailbox['id']);
-        }
-        
-        // If reopen failed, try closing and reopening the connection
-        if (!$result) {
-            $this->eventLogger->log('warning', "imap_reopen failed: " . ($error ?: 'unknown error') . ", trying to reconnect", null, $this->mailbox['id']);
-            @\imap_close($this->imapConnection);
-            $this->imapConnection = @\imap_open($connectionString, $this->mailbox['imap_username'], $this->mailbox['imap_password']);
-            if ($this->imapConnection) {
-                $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
-                $error = \imap_last_error();
-                $this->eventLogger->log('info', "After reconnect, imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
-            }
-        }
-        
-        if (!$result) {
-            $finalError = $error ?: \imap_last_error() ?: 'Unknown error';
-            $this->eventLogger->log('error', "Failed to select folder '{$actualMailboxPath}': {$finalError}", null, $this->mailbox['id']);
-            throw new Exception("Failed to select folder: {$finalError}");
-        }
-        
-        $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
+        // Folder is already selected from the code above, just verify
+        $this->eventLogger->log('info', "Folder selected: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
         // DIAGNOSTIC: Check what the server reports BEFORE we start fetching
         $checkResult = @\imap_check($this->imapConnection);
@@ -280,24 +231,41 @@ class MailboxMonitor {
             " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
             " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
         
-        // CRITICAL CHECK: If imap_check reports a different mailbox path than what we selected, we have a mismatch!
-        if ($checkResult && isset($checkResult->Mailbox) && $checkResult->Mailbox !== $actualMailboxPath) {
-            $this->eventLogger->log('error', "FOLDER MISMATCH! We selected '{$actualMailboxPath}' but imap_check reports '{$checkResult->Mailbox}'. This means we're in the wrong folder!", null, $this->mailbox['id']);
-            // Try to select the folder that imap_check says we're actually in
-            $this->eventLogger->log('info', "Attempting to select the correct folder: '{$checkResult->Mailbox}'", null, $this->mailbox['id']);
-            $reopenResult = @\imap_reopen($this->imapConnection, $checkResult->Mailbox);
-            if ($reopenResult) {
+        // CRITICAL: Always use the path from imap_check - it's the authoritative source
+        // imap_list returns paths without auth, but imap_check shows the real path with auth
+        if ($checkResult && isset($checkResult->Mailbox)) {
+            if ($checkResult->Mailbox !== $actualMailboxPath) {
+                $this->eventLogger->log('info', "Updating mailbox path from imap_check: '{$actualMailboxPath}' -> '{$checkResult->Mailbox}'", null, $this->mailbox['id']);
                 $actualMailboxPath = $checkResult->Mailbox;
-                $this->eventLogger->log('info', "Successfully reopened to correct folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
-                // Re-check after reopening
-                $checkResult = @\imap_check($this->imapConnection);
-                $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_ALL);
-                $numMsg = @\imap_num_msg($this->imapConnection);
-                $this->eventLogger->log('info', "After reopening - imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
-                    " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
-                    " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
-            } else {
-                $this->eventLogger->log('error', "Failed to reopen to correct folder: " . (\imap_last_error() ?: 'unknown error'), null, $this->mailbox['id']);
+                // Make sure we're actually in this folder
+                $reopenResult = @\imap_reopen($this->imapConnection, $actualMailboxPath);
+                if ($reopenResult) {
+                    // Re-check after reopening
+                    $checkResult = @\imap_check($this->imapConnection);
+                    $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_ALL);
+                    $numMsg = @\imap_num_msg($this->imapConnection);
+                    $this->eventLogger->log('info', "After reopening to correct path - imap_check: " . ($checkResult ? "OK (Mailbox: {$checkResult->Mailbox}, Messages: {$checkResult->Nmsgs})" : "FAILED") . 
+                        " | imap_status: " . ($status ? "Messages: {$status->messages}, Recent: {$status->recent}, Unseen: {$status->unseen}" : "FAILED") . 
+                        " | imap_num_msg: " . ($numMsg !== false ? $numMsg : "FAILED"), null, $this->mailbox['id']);
+                } else {
+                    $this->eventLogger->log('error', "Failed to reopen to correct folder: " . (\imap_last_error() ?: 'unknown error'), null, $this->mailbox['id']);
+                }
+            }
+        }
+        
+        // DIAGNOSTIC: List all folders and their message counts to help debug
+        if ($allMailboxes && count($allMailboxes) > 0) {
+            $this->eventLogger->log('debug', "Listing all folders and their message counts:", null, $this->mailbox['id']);
+            foreach ($allMailboxes as $mb) {
+                $folder = str_replace($baseConnectionString, "", $mb);
+                $folderDecoded = \imap_utf7_decode($folder);
+                // Try to get status for this folder
+                $folderStatus = @\imap_status($this->imapConnection, $mb, SA_MESSAGES | SA_UNSEEN);
+                if ($folderStatus) {
+                    $this->eventLogger->log('debug', "  Folder: '{$folderDecoded}' -> Messages: {$folderStatus->messages}, Unseen: {$folderStatus->unseen}", null, $this->mailbox['id']);
+                } else {
+                    $this->eventLogger->log('debug', "  Folder: '{$folderDecoded}' -> Status check failed", null, $this->mailbox['id']);
+                }
             }
         }
         
