@@ -1285,13 +1285,22 @@ function applyNotificationQueueFilters() {
     });
     
     // Display filtered and sorted notifications (update both containers if they exist)
+    const buttonsHtml = `
+        <div class="d-flex gap-2 mb-2">
+            <button class="btn btn-secondary btn-sm" onclick="selectAllNotifications()">Select All</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="deselectAllNotifications()">Deselect All</button>
+            <button class="btn btn-primary btn-sm" onclick="sendSelectedNotifications()">Send Selected</button>
+        </div>
+    `;
+    
     const htmlContent = `
+        ${buttonsHtml}
         <div class="table-responsive">
             <table class="table table-sm">
                 <thead>
                     <tr>
                         <th><input type="checkbox" id="selectAllNotifications"></th>
-                        <th>Recipient</th>
+                        <th>Original CC (Notify)</th>
                         <th>Original To</th>
                         <th>Domain</th>
                         <th>SMTP Code</th>
@@ -1315,13 +1324,9 @@ function applyNotificationQueueFilters() {
                     `).join('')}
                 </tbody>
             </table>
-            <div class="d-flex gap-2 mt-2">
-                <button class="btn btn-secondary btn-sm" onclick="selectAllNotifications()">Select All</button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="deselectAllNotifications()">Deselect All</button>
-                <button class="btn btn-primary btn-sm" onclick="sendSelectedNotifications()">Send Selected</button>
-            </div>
-            ${filterText ? `<small class="text-muted">Showing ${filtered.length} of ${allNotifications.length} notifications</small>` : ''}
         </div>
+        ${buttonsHtml}
+        ${filterText ? `<small class="text-muted d-block mt-2">Showing ${filtered.length} of ${allNotifications.length} notifications</small>` : ''}
     `;
     
     // Update all containers
