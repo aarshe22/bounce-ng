@@ -147,10 +147,191 @@ function displayMailboxes(mailboxes) {
     });
 }
 
+// Relay Providers
+async function loadRelayProviders() {
+    try {
+        const response = await fetch('/api/relay-providers.php?action=list');
+        const data = await response.json();
+        if (data.success) {
+            displayRelayProviders(data.data);
+            updateRelayProviderSelect(data.data);
+        }
+    } catch (error) {
+        console.error('Error loading relay providers:', error);
+    }
+}
+
+function displayRelayProviders(providers) {
+    const container = document.getElementById('relayProviderList');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    providers.forEach(provider => {
+        const item = document.createElement('div');
+        item.className = 'list-group-item';
+        item.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>${provider.name}</strong>
+                    <br>
+                    <small class="text-muted">${provider.smtp_host}:${provider.smtp_port} (${provider.smtp_encryption})</small>
+                    <br>
+                    <small class="text-muted">From: ${provider.smtp_from_email}</small>
+                </div>
+                <div>
+                    <span class="badge ${provider.is_active == 1 ? 'bg-success' : 'bg-secondary'}">${provider.is_active == 1 ? 'Active' : 'Inactive'}</span>
+                    <div class="btn-group btn-group-sm mt-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="editRelayProvider(${provider.id})">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteRelayProvider(${provider.id})">Delete</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function updateRelayProviderSelect(providers) {
+    const select = document.getElementById('mailboxRelayProvider');
+    if (!select) return;
+    
+    // Keep the "None" option
+    select.innerHTML = '<option value="">-- None (use default) --</option>';
+    
+    providers.forEach(provider => {
+        if (provider.is_active == 1) {
+            const option = document.createElement('option');
+            option.value = provider.id;
+            option.textContent = provider.name;
+            select.appendChild(option);
+        }
+    });
+}
+
+function showAddRelayProviderModal() {
+    document.getElementById('relayProviderModalTitle').textContent = 'Add Relay Provider';
+    document.getElementById('relayProviderForm').reset();
+    document.getElementById('relayProviderId').value = '';
+    document.getElementById('relayProviderPassword').required = true;
+    new bootstrap.Modal(document.getElementById('relayProviderModal')).show();
+}
+
+async function editRelayProvider(id) {
+    try {
+        const response = await fetch(`/api/relay-providers.php?action=get&id=${id}`);
+        const data = await response.json();
+        if (data.success) {
+            const provider = data.data;
+            document.getElementById('relayProviderModalTitle').textContent = 'Edit Relay Provider';
+            document.getElementById('relayProviderId').value = provider.id;
+            document.getElementById('relayProviderName').value = provider.name;
+            document.getElementById('relayProviderHost').value = provider.smtp_host;
+            document.getElementById('relayProviderPort').value = provider.smtp_port;
+            document.getElementById('relayProviderEncryption').value = provider.smtp_encryption;
+            document.getElementById('relayProviderUsername').value = provider.smtp_username;
+            document.getElementById('relayProviderPassword').value = '';
+            document.getElementById('relayProviderPassword').required = false;
+            document.getElementById('relayProviderFromEmail').value = provider.smtp_from_email;
+            document.getElementById('relayProviderFromName').value = provider.smtp_from_name;
+            document.getElementById('relayProviderEnabled').checked = provider.is_active == 1;
+            new bootstrap.Modal(document.getElementById('relayProviderModal')).show();
+        }
+    } catch (error) {
+        console.error('Error loading relay provider:', error);
+    }
+}
+
+async function testRelayProvider() {
+    const id = document.getElementById('relayProviderId').value;
+    if (!id) {
+        alert('Please save the relay provider first');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/relay-providers.php?action=test&id=${id}`);
+        const data = await response.json();
+        if (data.success) {
+            alert('Connection successful!');
+        } else {
+            alert('Connection failed: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error testing connection: ' + error.message);
+    }
+}
+
+async function saveRelayProvider() {
+    const form = document.getElementById('relayProviderForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const data = {
+        id: document.getElementById('relayProviderId').value || null,
+        name: document.getElementById('relayProviderName').value,
+        smtp_host: document.getElementById('relayProviderHost').value,
+        smtp_port: parseInt(document.getElementById('relayProviderPort').value),
+        smtp_encryption: document.getElementById('relayProviderEncryption').value,
+        smtp_username: document.getElementById('relayProviderUsername').value,
+        smtp_from_email: document.getElementById('relayProviderFromEmail').value,
+        smtp_from_name: document.getElementById('relayProviderFromName').value,
+        is_active: document.getElementById('relayProviderEnabled').checked ? 1 : 0
+    };
+    
+    // Only include password if provided (for updates)
+    const password = document.getElementById('relayProviderPassword').value;
+    if (password) {
+        data.smtp_password = password;
+    }
+    
+    try {
+        const url = data.id ? '/api/relay-providers.php?action=update' : '/api/relay-providers.php?action=create';
+        const method = data.id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            bootstrap.Modal.getInstance(document.getElementById('relayProviderModal')).hide();
+            loadRelayProviders();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error saving relay provider: ' + error.message);
+    }
+}
+
+async function deleteRelayProvider(id) {
+    if (!confirm('Are you sure you want to delete this relay provider?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/relay-providers.php?action=delete&id=${id}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            loadRelayProviders();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error deleting relay provider: ' + error.message);
+    }
+}
+
 function showAddMailboxModal() {
     document.getElementById('mailboxModalTitle').textContent = 'Add Mailbox';
     document.getElementById('mailboxForm').reset();
     document.getElementById('mailboxId').value = '';
+    loadRelayProviders(); // Refresh relay provider list
     new bootstrap.Modal(document.getElementById('mailboxModal')).show();
 }
 
