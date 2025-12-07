@@ -421,8 +421,17 @@ class MailboxMonitor {
                 $originalTo = $parser->getOriginalTo();
                 $originalCc = $parser->getOriginalCc();
                 $recipientDomain = $parser->getRecipientDomain();
-
-                $this->eventLogger->log('debug', "Extracted bounce data - To: {$originalTo}, CC count: " . count($originalCc ?? []) . ", Domain: {$recipientDomain}", null, $this->mailbox['id']);
+                
+                $ccCount = is_array($originalCc) ? count($originalCc) : 0;
+                $ccList = is_array($originalCc) && !empty($originalCc) ? implode(', ', $originalCc) : 'NONE';
+                $this->eventLogger->log('debug', "Extracted bounce data - To: {$originalTo}, CC count: {$ccCount}, CC addresses: {$ccList}, Domain: {$recipientDomain}", null, $this->mailbox['id']);
+                
+                // If no CC found, log a sample of the email body to help debug
+                if (empty($originalCc) || $ccCount === 0) {
+                    $parsedData = $parser->getParsedData();
+                    $bodySample = substr($parsedData['body'] ?? '', 0, 500);
+                    $this->eventLogger->log('debug', "No CC addresses found. Body sample (first 500 chars): " . substr($bodySample, 0, 500), null, $this->mailbox['id']);
+                }
 
                 if (!$originalTo || !$recipientDomain) {
                     // Cannot parse, move to problem
