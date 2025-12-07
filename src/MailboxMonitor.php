@@ -730,7 +730,9 @@ class MailboxMonitor {
 
         // Update last processed time
         $stmt = $this->db->prepare("UPDATE mailboxes SET last_processed = CURRENT_TIMESTAMP WHERE id = ?");
-        $stmt->execute([$this->mailbox['id']]);
+        $params = [$this->mailbox['id']];
+        $this->db->logSql($stmt->queryString, $params);
+        $stmt->execute($params);
 
         $this->eventLogger->log('info', "✓✓✓ Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems", null, $this->mailbox['id']);
         error_log("MailboxMonitor: ✓✓✓ Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems");
@@ -768,7 +770,7 @@ class MailboxMonitor {
             $this->eventLogger->log('debug', "No CC addresses to store for bounce (originalCc is empty or not array)", null, $this->mailbox['id']);
         }
         
-        $stmt->execute([
+        $params = [
             $this->mailbox['id'],
             $parser->getOriginalTo(),
             $ccString,
@@ -784,7 +786,12 @@ class MailboxMonitor {
             null, // Will be calculated separately
             $data['headers'] ?? '',
             $parser->getParsedData()['body'] ?? ''
-        ]);
+        ];
+        
+        // Log SQL for debugging (not events_log, so safe)
+        $this->db->logSql($stmt->queryString, $params);
+        
+        $stmt->execute($params);
 
         return $this->db->lastInsertId();
     }
@@ -813,7 +820,10 @@ class MailboxMonitor {
             
             if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 try {
-                    $stmt->execute([$bounceId, strtolower($email)]);
+                    $params = [$bounceId, strtolower($email)];
+                    // Log SQL for debugging (not events_log, so safe)
+                    $this->db->logSql($stmt->queryString, $params);
+                    $stmt->execute($params);
                     if ($stmt->rowCount() > 0) {
                         $queuedCount++;
                         $this->eventLogger->log('debug', "Queued notification for {$email} (bounce ID: {$bounceId})", null, $this->mailbox['id']);

@@ -351,22 +351,21 @@ Bounce Monitor System'
     }
 
     /**
-     * Log SQL query for debugging (using error_log to avoid circular dependency)
+     * Log SQL query for debugging (using error_log only to avoid circular dependency)
+     * Note: This is called from EventLogger::log(), so we cannot call EventLogger here
      */
     public function logSql($sql, $params = []) {
         $logMessage = "SQL: " . $sql;
         if (!empty($params)) {
-            $logMessage .= " | Params: " . json_encode($params);
+            // Truncate params if too long to prevent memory issues
+            $paramsJson = json_encode($params);
+            if (strlen($paramsJson) > 500) {
+                $paramsJson = substr($paramsJson, 0, 500) . "... (truncated)";
+            }
+            $logMessage .= " | Params: " . $paramsJson;
         }
+        // Only use error_log to avoid circular dependency with EventLogger
         error_log("Database SQL: " . $logMessage);
-        
-        // Also try to log via EventLogger if possible (but don't fail if it causes issues)
-        try {
-            $eventLogger = new EventLogger();
-            $eventLogger->log('debug', $logMessage, null, null);
-        } catch (\Exception $e) {
-            // Ignore - error_log already captured it
-        }
     }
 }
 

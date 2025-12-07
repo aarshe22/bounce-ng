@@ -29,8 +29,8 @@ class EventLogger {
                 $metadataJson
             ];
             
-            // Log SQL for debugging
-            $this->db->logSql($sql, $params);
+            // Don't log SQL for events_log inserts to avoid recursion
+            // SQL logging is only for other tables (bounces, notifications_queue, etc.)
             
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -43,7 +43,7 @@ class EventLogger {
         } catch (\Exception $e) {
             // Fallback to error_log if database write fails
             error_log("EventLogger ERROR: Failed to write log - " . $e->getMessage() . " | Message: " . $message);
-            error_log("EventLogger ERROR: SQL: " . $sql . " | Params: " . json_encode($params ?? []));
+            error_log("EventLogger ERROR: SQL: " . ($sql ?? 'N/A') . " | Params: " . json_encode($params ?? []));
         }
     }
 
