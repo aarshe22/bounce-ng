@@ -609,23 +609,20 @@ async function runProcessing() {
                         throw error;
                     }
                 }
-                    
-                    // After processing, retroactively queue notifications for existing bounces with CC addresses
-                    try {
-                        const retroResponse = await fetch('/api/mailboxes.php?action=retroactive-queue', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mailbox_id: mailbox.id })
-                        });
-                        const retroData = await retroResponse.json();
-                        if (retroData.success && retroData.queued > 0) {
-                            addEventLogMessage('info', `Queued ${retroData.queued} additional notifications from existing bounces`);
-                        }
-                    } catch (retroError) {
-                        console.error('Error in retroactive queue:', retroError);
+                
+                // After processing, retroactively queue notifications for existing bounces with CC addresses
+                try {
+                    const retroResponse = await fetch('/api/mailboxes.php?action=retroactive-queue', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mailbox_id: mailbox.id })
+                    });
+                    const retroData = await retroResponse.json();
+                    if (retroData.success && retroData.queued > 0) {
+                        addEventLogMessage('info', `Queued ${retroData.queued} additional notifications from existing bounces`);
                     }
-                } else {
-                    addEventLogMessage('error', `Error processing ${mailbox.name}: ${processData.error || 'Unknown error'}`);
+                } catch (retroError) {
+                    console.error('Error in retroactive queue:', retroError);
                 }
             } catch (error) {
                 console.error(`Error processing mailbox ${mailbox.name}:`, error);
