@@ -90,7 +90,7 @@ function switchView(viewName) {
     });
     
     // Remove active class from all buttons
-    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn').forEach(btn => {
+    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn, #viewNotificationsBtn').forEach(btn => {
         btn.classList.remove('active');
     });
     
@@ -101,6 +101,22 @@ function switchView(viewName) {
     } else if (viewName === 'dashboard') {
         document.getElementById('viewDashboard').style.display = 'block';
         document.getElementById('viewDashboardBtn').classList.add('active');
+    } else if (viewName === 'notifications') {
+        document.getElementById('viewNotifications').style.display = 'block';
+        document.getElementById('viewNotificationsBtn').classList.add('active');
+        // Load notification queue when switching to this view
+        loadNotificationQueue();
+        // Ensure the view container shows content
+        setTimeout(() => {
+            const container = document.getElementById('notificationQueueView');
+            if (container && (!container.innerHTML || container.innerHTML.trim() === '')) {
+                if (allNotifications.length === 0) {
+                    container.innerHTML = '<p class="text-muted">No pending notifications</p>';
+                } else {
+                    applyNotificationQueueFilters();
+                }
+            }
+        }, 100);
     } else if (viewName === 'events') {
         document.getElementById('viewEvents').style.display = 'block';
         document.getElementById('viewEventsBtn').classList.add('active');
@@ -567,6 +583,9 @@ async function editRelayProvider(id) {
     }
 }
 
+// Expose edit functions to global scope for onclick handlers
+window.editRelayProvider = editRelayProvider;
+
 async function testRelayProvider() {
     const id = document.getElementById('relayProviderId').value;
     if (!id) {
@@ -688,6 +707,9 @@ async function editMailbox(id) {
         console.error('Error loading mailbox:', error);
     }
 }
+
+// Expose edit functions to global scope for onclick handlers
+window.editMailbox = editMailbox;
 
 async function testMailboxConnection() {
     const id = document.getElementById('mailboxId').value;
@@ -1197,23 +1219,35 @@ function displayNotificationQueue(notifications) {
 }
 
 function applyNotificationQueueFilters() {
-    // Try both containers (dashboard and notifications view)
-    const container = document.getElementById('notificationQueue') || document.getElementById('notificationQueueView');
-    if (!container) return;
+    // Get both containers (dashboard and notifications view)
+    const dashboardContainer = document.getElementById('notificationQueue');
+    const viewContainer = document.getElementById('notificationQueueView');
+    
+    // Update both containers to keep them in sync
+    const containersToUpdate = [];
+    if (dashboardContainer) containersToUpdate.push(dashboardContainer);
+    if (viewContainer) containersToUpdate.push(viewContainer);
+    
+    if (containersToUpdate.length === 0) return;
     
     if (allNotifications.length === 0) {
-        container.innerHTML = '<p class="text-muted">No pending notifications</p>';
-        // Also update the other container if it exists
-        const otherContainer = document.getElementById('notificationQueue') ? document.getElementById('notificationQueueView') : document.getElementById('notificationQueue');
-        if (otherContainer) {
-            otherContainer.innerHTML = '<p class="text-muted">No pending notifications</p>';
-        }
+        const emptyMessage = '<p class="text-muted">No pending notifications</p>';
+        containersToUpdate.forEach(container => {
+            container.innerHTML = emptyMessage;
+        });
         return;
     }
     
-    // Get the correct filter and sort elements (check both views)
-    const filterInput = document.getElementById('notificationQueueFilter') || document.getElementById('notificationQueueFilterView');
-    const sortSelect = document.getElementById('notificationQueueSort') || document.getElementById('notificationQueueSortView');
+    // Get the correct filter and sort elements (prefer the visible view's controls)
+    let filterInput = document.getElementById('notificationQueueFilterView');
+    let sortSelect = document.getElementById('notificationQueueSortView');
+    
+    // Check if notifications view is visible
+    const notificationsViewVisible = viewContainer && viewContainer.closest('.view-container')?.style.display !== 'none';
+    if (!notificationsViewVisible) {
+        filterInput = document.getElementById('notificationQueueFilter') || filterInput;
+        sortSelect = document.getElementById('notificationQueueSort') || sortSelect;
+    }
     
     // Get filter and sort values
     const filterText = filterInput?.value.toLowerCase() || '';
@@ -1290,22 +1324,22 @@ function applyNotificationQueueFilters() {
         </div>
     `;
     
-    // Update both containers if they exist
-    container.innerHTML = htmlContent;
-    const otherContainer = document.getElementById('notificationQueue') === container ? document.getElementById('notificationQueueView') : document.getElementById('notificationQueue');
-    if (otherContainer) {
-        otherContainer.innerHTML = htmlContent;
-    }
+    // Update all containers
+    containersToUpdate.forEach(container => {
+        container.innerHTML = htmlContent;
+    });
     
-    // Select all checkbox (attach to both if they exist)
-    const selectAll = document.getElementById('selectAllNotifications');
-    if (selectAll) {
-        selectAll.addEventListener('change', function(e) {
+    // Select all checkbox (attach event listener - use querySelectorAll to handle multiple instances)
+    document.querySelectorAll('#selectAllNotifications').forEach(selectAll => {
+        // Remove existing listeners by cloning
+        const newSelectAll = selectAll.cloneNode(true);
+        selectAll.parentNode.replaceChild(newSelectAll, selectAll);
+        newSelectAll.addEventListener('change', function(e) {
             document.querySelectorAll('.notification-checkbox').forEach(cb => {
                 cb.checked = e.target.checked;
             });
         });
-    }
+    });
 }
 
 function selectAllNotifications() {
