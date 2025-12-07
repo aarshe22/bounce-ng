@@ -2,6 +2,12 @@
 let currentMailboxId = null;
 let eventPollInterval = null;
 
+// Event log pagination state
+let eventLogCurrentPage = 1;
+let eventLogPageSize = 50; // Will be calculated based on viewport
+let eventLogTotalEvents = 0;
+let eventLogAllEvents = []; // Store all events for client-side pagination
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     loadUserInfo();
@@ -12,6 +18,13 @@ document.addEventListener('DOMContentLoaded', function() {
     loadEventLog();
     loadNotificationQueue();
     
+    // Initialize view switching
+    initializeViews();
+    
+    // Calculate event log page size based on viewport
+    calculateEventLogPageSize();
+    window.addEventListener('resize', calculateEventLogPageSize);
+    
     // Add click handler for refresh button
     const refreshBtn = document.getElementById('refreshLogBtn');
     if (refreshBtn) {
@@ -21,7 +34,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add change handler for event filter
     const eventFilter = document.getElementById('eventFilter');
     if (eventFilter) {
-        eventFilter.addEventListener('change', loadEventLog);
+        eventFilter.addEventListener('change', function() {
+            eventLogCurrentPage = 1; // Reset to first page when filter changes
+            loadEventLog();
+        });
     }
     
     // No auto-refresh for event log - user can manually refresh or it auto-refreshes during processing
@@ -29,6 +45,117 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(loadDashboard, 10000);
     setInterval(loadNotificationQueue, 5000);
 });
+
+// View switching functions
+function switchView(viewName) {
+    // Hide all views
+    document.querySelectorAll('.view-container').forEach(view => {
+        view.style.display = 'none';
+    });
+    
+    // Remove active class from all buttons
+    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected view and activate button
+    if (viewName === 'controls') {
+        document.getElementById('viewControls').style.display = 'block';
+        document.getElementById('viewControlsBtn').classList.add('active');
+    } else if (viewName === 'dashboard') {
+        document.getElementById('viewDashboard').style.display = 'block';
+        document.getElementById('viewDashboardBtn').classList.add('active');
+    } else if (viewName === 'events') {
+        document.getElementById('viewEvents').style.display = 'block';
+        document.getElementById('viewEventsBtn').classList.add('active');
+    }
+}
+
+function initializeViews() {
+    // Set default view to Controls
+    switchView('controls');
+}
+
+// Event log pagination functions
+function calculateEventLogPageSize() {
+    const eventLogContainer = document.getElementById('eventLog');
+    if (!eventLogContainer) return;
+    
+    // Calculate how many events fit in the viewport
+    // Each event line is approximately 20px high (with padding)
+    const containerHeight = eventLogContainer.clientHeight;
+    const estimatedLineHeight = 20;
+    const pageSize = Math.max(10, Math.floor(containerHeight / estimatedLineHeight) - 2); // -2 for padding
+    
+    eventLogPageSize = pageSize;
+}
+
+function eventLogPrevPage() {
+    if (eventLogCurrentPage > 1) {
+        eventLogCurrentPage--;
+        displayEventLogPage();
+    }
+}
+
+function eventLogNextPage() {
+    const totalPages = Math.ceil(eventLogAllEvents.length / eventLogPageSize);
+    if (eventLogCurrentPage < totalPages) {
+        eventLogCurrentPage++;
+        displayEventLogPage();
+    }
+}
+
+function displayEventLogPage() {
+    const container = document.getElementById('eventLog');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    // Calculate pagination
+    const startIndex = (eventLogCurrentPage - 1) * eventLogPageSize;
+    const endIndex = startIndex + eventLogPageSize;
+    const pageEvents = eventLogAllEvents.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(eventLogAllEvents.length / eventLogPageSize);
+    
+    // Display events for current page
+    pageEvents.forEach(event => {
+        const item = document.createElement('div');
+        item.className = `event ${event.severity}`;
+        
+        // Format timestamp if available
+        let timestampDisplay = '';
+        if (event.created_at) {
+            try {
+                const date = new Date(event.created_at);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                timestampDisplay = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } catch (e) {
+                timestampDisplay = event.created_at;
+            }
+        }
+        
+        const idDisplay = event.id ? `[ID:${event.id}]` : '';
+        const timestampPart = timestampDisplay ? `<span class="text-muted">${timestampDisplay}</span> ` : '';
+        item.innerHTML = `<span class="text-muted">${idDisplay}</span> ${timestampPart}<strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
+        container.appendChild(item);
+    });
+    
+    // Update pagination controls
+    const prevBtn = document.getElementById('eventLogPrevBtn');
+    const nextBtn = document.getElementById('eventLogNextBtn');
+    const pageInfo = document.getElementById('eventLogPageInfo');
+    const logInfo = document.getElementById('eventLogInfo');
+    
+    if (prevBtn) prevBtn.disabled = eventLogCurrentPage <= 1;
+    if (nextBtn) nextBtn.disabled = eventLogCurrentPage >= totalPages;
+    if (pageInfo) pageInfo.textContent = `Page ${eventLogCurrentPage} of ${totalPages}`;
+    if (logInfo) logInfo.textContent = `Showing ${startIndex + 1}-${Math.min(endIndex, eventLogAllEvents.length)} of ${eventLogAllEvents.length} events`;
+}
 
 // Theme toggle
 document.getElementById('themeToggle').addEventListener('click', function() {
@@ -844,7 +971,8 @@ async function loadEventLog() {
         }
         
         const filter = document.getElementById('eventFilter').value;
-        const url = filter ? `/api/events.php?limit=100&severity=${filter}` : '/api/events.php?limit=100';
+        // Load more events for pagination (load 1000 to have plenty for pagination)
+        const url = filter ? `/api/events.php?limit=1000&severity=${filter}` : '/api/events.php?limit=1000';
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -870,39 +998,15 @@ async function loadEventLog() {
 }
 
 function displayEventLog(events) {
-    const container = document.getElementById('eventLog');
-    container.innerHTML = '';
+    // Store all events for pagination
+    eventLogAllEvents = events;
+    eventLogTotalEvents = events.length;
     
-    // Display events in database ID order (newest first, as returned by ORDER BY id DESC)
-    // Show timestamps but sort by ID (not timestamp) to ensure consistent ordering
-    events.forEach(event => {
-        const item = document.createElement('div');
-        item.className = `event ${event.severity}`;
-        
-        // Format timestamp if available
-        let timestampDisplay = '';
-        if (event.created_at) {
-            try {
-                const date = new Date(event.created_at);
-                // Format as: YYYY-MM-DD HH:MM:SS
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                const seconds = String(date.getSeconds()).padStart(2, '0');
-                timestampDisplay = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-            } catch (e) {
-                // If date parsing fails, use raw value
-                timestampDisplay = event.created_at;
-            }
-        }
-        
-        const idDisplay = event.id ? `[ID:${event.id}]` : '';
-        const timestampPart = timestampDisplay ? `<span class="text-muted">${timestampDisplay}</span> ` : '';
-        item.innerHTML = `<span class="text-muted">${idDisplay}</span> ${timestampPart}<strong>${event.severity.toUpperCase()}</strong>: ${event.message}`;
-        container.appendChild(item);
-    });
+    // Reset to first page when new events are loaded
+    eventLogCurrentPage = 1;
+    
+    // Display the current page
+    displayEventLogPage();
 }
 
 // Removed toggleLogPause - no longer needed without auto-refresh

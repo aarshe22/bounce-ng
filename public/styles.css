@@ -101,3 +101,38 @@
     background-color: rgba(255, 255, 255, 0.05);
 }
 
+/* View container styles */
+.view-container {
+    height: 100%;
+}
+
+/* Event log pagination styles */
+#eventLog {
+    min-height: 400px;
+}
+
+.event {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.event.error {
+    color: #dc3545;
+}
+
+.event.warning {
+    color: #ffc107;
+}
+
+.event.success {
+    color: #198754;
+}
+
+.event.info {
+    color: #0dcaf0;
+}
+
+.event.debug {
+    color: #6c757d;
+}
+
