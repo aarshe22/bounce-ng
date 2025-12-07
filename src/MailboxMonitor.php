@@ -159,11 +159,26 @@ class MailboxMonitor {
             throw new Exception("Folder '{$inbox}' not found. Available folders: {$foldersList}");
         }
         
-        // Select the folder using the actual mailbox path
-        $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
+        // Get message count BEFORE selecting (using imap_status on the mailbox path)
+        // This works even if the mailbox isn't selected
+        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
+        $messageCount = 0;
+        $unseenCount = 0;
+        
+        if ($status) {
+            $messageCount = $status->messages ?? 0;
+            $unseenCount = $status->unseen ?? 0;
+            $this->eventLogger->log('info', "Message count from imap_status (before selection): {$messageCount} total, {$unseenCount} unseen", null, $this->mailbox['id']);
+        } else {
+            $error = imap_last_error();
+            $this->eventLogger->log('warning', "imap_status failed before selection: {$error}", null, $this->mailbox['id']);
+        }
+        
+        // Select the folder using the actual mailbox path - try imap_select first (more reliable)
+        $result = @imap_select($this->imapConnection, $actualMailboxPath);
         if (!$result) {
-            // Try imap_select
-            $result = @imap_select($this->imapConnection, $actualMailboxPath);
+            // Fallback to imap_reopen
+            $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
         }
         
         if (!$result) {
@@ -174,31 +189,70 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        // Get message count - imap_num_msg() is most reliable for the currently selected mailbox
-        // It counts ALL messages regardless of read/unread status
-        $messageCount = @imap_num_msg($this->imapConnection);
-        $this->eventLogger->log('info', "Message count from imap_num_msg (selected mailbox): {$messageCount}", null, $this->mailbox['id']);
+        // Now get message count from the selected mailbox - try multiple methods
+        $numMsgCount = @imap_num_msg($this->imapConnection);
+        $this->eventLogger->log('info', "Message count from imap_num_msg (after selection): {$numMsgCount}", null, $this->mailbox['id']);
         
-        // Also get status for additional info (unseen count)
-        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_UNSEEN);
-        $unseenCount = 0;
-        if ($status && isset($status->unseen)) {
-            $unseenCount = $status->unseen;
+        // Use the higher count (status might be more accurate)
+        if ($numMsgCount > $messageCount) {
+            $messageCount = $numMsgCount;
         }
         
-        // If imap_num_msg returns 0, try other methods
+        // Re-check status after selection
+        $statusAfter = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
+        if ($statusAfter) {
+            $statusCount = $statusAfter->messages ?? 0;
+            $unseenCount = $statusAfter->unseen ?? 0;
+            $this->eventLogger->log('info', "Message count from imap_status (after selection): {$statusCount} total, {$unseenCount} unseen", null, $this->mailbox['id']);
+            if ($statusCount > $messageCount) {
+                $messageCount = $statusCount;
+            }
+        }
+        
+        // If still 0, try imap_search as backup - this is the most reliable method
         if ($messageCount == 0) {
-            // Try imap_search as backup
-            $searchResult = @imap_search($this->imapConnection, 'ALL');
-            if ($searchResult && count($searchResult) > 0) {
-                $messageCount = count($searchResult);
-                $this->eventLogger->log('info', "Message count from imap_search('ALL'): {$messageCount}", null, $this->mailbox['id']);
-            } else {
-                // Try status one more time
-                $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
-                if ($status && isset($status->messages) && $status->messages > 0) {
-                    $messageCount = $status->messages;
-                    $this->eventLogger->log('info', "Message count from imap_status: {$messageCount}", null, $this->mailbox['id']);
+            // Clear any previous errors
+            imap_errors();
+            
+            // Try different search criteria - imap_search is often more reliable
+            $searchOptions = ['ALL', '1:*'];
+            foreach ($searchOptions as $criteria) {
+                $searchResult = @imap_search($this->imapConnection, $criteria);
+                if ($searchResult && is_array($searchResult) && count($searchResult) > 0) {
+                    $messageCount = count($searchResult);
+                    $this->eventLogger->log('info', "Message count from imap_search('{$criteria}'): {$messageCount}", null, $this->mailbox['id']);
+                    break;
+                }
+            }
+            
+            // Also try getting UIDs which might work even if message count doesn't
+            if ($messageCount == 0) {
+                $uids = @imap_search($this->imapConnection, 'ALL', SE_UID);
+                if ($uids && is_array($uids) && count($uids) > 0) {
+                    $uidCount = count($uids);
+                    $messageCount = $uidCount;
+                    $this->eventLogger->log('info', "Message count from imap_search UIDs: {$messageCount}", null, $this->mailbox['id']);
+                }
+            }
+            
+            // Last resort: try to fetch message 1 to see if it exists
+            if ($messageCount == 0) {
+                $testHeader = @imap_fetchheader($this->imapConnection, 1);
+                if ($testHeader) {
+                    // If we can fetch header, there's at least one message
+                    // Try to count by attempting to fetch headers sequentially
+                    $testCount = 0;
+                    for ($i = 1; $i <= 1000; $i++) {
+                        $testHdr = @imap_fetchheader($this->imapConnection, $i);
+                        if (!$testHdr) {
+                            break;
+                        }
+                        $testCount = $i;
+                    }
+                    if ($testCount > 0) {
+                        $messageCount = $testCount;
+                        $this->eventLogger->log('info', "Message count from sequential header fetch: {$messageCount}", null, $this->mailbox['id']);
+                    }
                 }
             }
         }
