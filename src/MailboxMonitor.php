@@ -340,40 +340,31 @@ class MailboxMonitor {
                 }
                 
                 // If we haven't found any messages yet, keep trying longer
-                // Some IMAP servers might have gaps at the start
+                // CRITICAL: Don't trust imap_status - it may report 0 even when messages exist
+                // Some IMAP servers have issues with message counting, especially for unread messages
+                // We'll search aggressively regardless of what the server reports
                 if (count($uids) == 0) {
-                    // If server reports messages exist, be VERY persistent
-                    if ($serverReportsMessages) {
-                        // Server says messages exist - keep trying up to reported count
-                        if ($msgNum > $reportedCount * 2) {
-                            $this->eventLogger->log('warning', "Server reports {$reportedCount} messages but couldn't find any after checking up to message " . ($reportedCount * 2) . ". Last error: " . ($lastError ?: 'none'), null, $this->mailbox['id']);
-                            break;
-                        }
-                        // Continue searching - don't give up
-                    } else {
-                        // Server says no messages - check again at 100 and 1000
-                        if ($msgNum == 100) {
-                            // Re-check what server says
-                            $recheckStatus = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
-                            $recheckNum = @\imap_num_msg($this->imapConnection);
-                            if (($recheckStatus && isset($recheckStatus->messages) && $recheckStatus->messages > 0) || ($recheckNum && $recheckNum > 0)) {
-                                $newCount = ($recheckStatus && isset($recheckStatus->messages)) ? $recheckStatus->messages : $recheckNum;
-                                $this->eventLogger->log('info', "Server now reports {$newCount} messages exist. Continuing search...", null, $this->mailbox['id']);
-                                $serverReportsMessages = true;
-                                $reportedCount = $newCount;
-                                $maxMessages = max($maxMessages, $reportedCount * 2);
-                                // Continue searching
-                            } else {
-                                $this->eventLogger->log('warning', "No messages found in first 100 attempts and server confirms folder is empty. Stopping sequential fetch.", null, $this->mailbox['id']);
-                                break;
-                            }
-                        }
-                        
-                        // If we've tried 1000 times and still nothing, give up
-                        if ($msgNum >= 1000) {
-                            $this->eventLogger->log('warning', "No messages found after 1000 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
-                            break;
-                        }
+                    // Always be persistent - search up to a reasonable limit
+                    // Even if server says 0 messages, messages might exist
+                    if ($msgNum == 200) {
+                        $this->eventLogger->log('info', "Searched 200 messages with no results, but continuing search (server may report incorrect counts)...", null, $this->mailbox['id']);
+                    }
+                    
+                    if ($msgNum == 500) {
+                        $this->eventLogger->log('info', "Searched 500 messages with no results, but continuing search...", null, $this->mailbox['id']);
+                    }
+                    
+                    // Search up to 2000 messages before giving up
+                    // This handles cases where server reports 0 but messages actually exist
+                    if ($msgNum >= 2000) {
+                        $this->eventLogger->log('warning', "No messages found after 2000 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
+                        break;
+                    }
+                    
+                    // If server reports messages exist, search even more aggressively
+                    if ($serverReportsMessages && $msgNum > $reportedCount * 3) {
+                        $this->eventLogger->log('info', "Server reports {$reportedCount} messages but searched up to " . ($reportedCount * 3) . ". Continuing search...", null, $this->mailbox['id']);
+                        // Continue - don't give up yet
                     }
                 }
             }
