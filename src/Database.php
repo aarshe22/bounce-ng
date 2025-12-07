@@ -355,6 +355,11 @@ Bounce Monitor System'
      * Note: This is called from EventLogger::log(), so we cannot call EventLogger here
      */
     public function logSql($sql, $params = []) {
+        // Skip SQL logging in CLI mode to reduce cron output verbosity
+        if (php_sapi_name() === 'cli') {
+            return;
+        }
+        
         $logMessage = "SQL: " . $sql;
         if (!empty($params)) {
             // Truncate params if too long to prevent memory issues

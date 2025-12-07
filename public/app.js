@@ -1494,3 +1494,98 @@ async function runCron() {
     }
 }
 
+// Backup Configuration
+async function backupConfig() {
+    try {
+        const response = await fetch('/api/backup.php?action=export');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Get the filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'bounce-ng-backup.json';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        // Get the JSON data
+        const blob = await response.blob();
+        
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        addEventLogMessage('success', 'Configuration backup downloaded successfully');
+    } catch (error) {
+        console.error('Error backing up configuration:', error);
+        addEventLogMessage('error', 'Error backing up configuration: ' + error.message);
+        alert('Error backing up configuration: ' + error.message);
+    }
+}
+
+// Restore Configuration
+async function restoreConfig() {
+    const fileInput = document.getElementById('restoreFile');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please select a backup file to restore');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to restore configuration from this backup? This will overwrite existing users, mailboxes, relays, templates, and settings.')) {
+        return;
+    }
+    
+    try {
+        // Read file as text
+        const fileContent = await file.text();
+        
+        // Validate JSON
+        try {
+            JSON.parse(fileContent);
+        } catch (e) {
+            throw new Error('Invalid JSON file: ' + e.message);
+        }
+        
+        // Send to server
+        const response = await fetch('/api/backup.php?action=import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: fileContent
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            addEventLogMessage('success', 'Configuration restored successfully');
+            alert('Configuration restored successfully! The page will reload.');
+            
+            // Clear file input
+            fileInput.value = '';
+            
+            // Reload page after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            throw new Error(data.error || 'Failed to restore configuration');
+        }
+    } catch (error) {
+        console.error('Error restoring configuration:', error);
+        addEventLogMessage('error', 'Error restoring configuration: ' + error.message);
+        alert('Error restoring configuration: ' + error.message);
+    }
+}
+

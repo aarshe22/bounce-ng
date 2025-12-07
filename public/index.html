@@ -109,6 +109,25 @@
 
                                 <hr>
 
+                                <h6>Backup & Restore</h6>
+                                <div class="mb-3">
+                                    <button class="btn btn-info w-100" onclick="backupConfig()">
+                                        <i class="bi bi-download"></i> Backup Configuration
+                                    </button>
+                                    <small class="text-muted d-block mt-1">Download configuration (users, mailboxes, relays, templates, settings)</small>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Restore Configuration</label>
+                                    <input type="file" class="form-control" id="restoreFile" accept=".json">
+                                    <button class="btn btn-warning w-100 mt-2" onclick="restoreConfig()">
+                                        <i class="bi bi-upload"></i> Restore from Backup
+                                    </button>
+                                    <small class="text-muted d-block mt-1">Upload a backup JSON file to restore configuration</small>
+                                </div>
+
+                                <hr>
+
                                 <h6>Notification Template</h6>
                                 <div class="mb-3">
                                     <label class="form-label">Email Message Body</label>
