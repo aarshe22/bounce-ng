@@ -1156,9 +1156,25 @@ async function loadEventLog() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const data = await response.json();
+        // Check if response has content
+        const text = await response.text();
+        if (!text || text.trim() === '') {
+            // Empty response - initialize with empty array
+            displayEventLog([]);
+            return;
+        }
+        
+        // Try to parse JSON
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error('Invalid JSON response from events API:', text.substring(0, 200));
+            throw new Error('Invalid response from server: ' + e.message);
+        }
+        
         if (data.success) {
-            displayEventLog(data.data);
+            displayEventLog(data.data || []);
         } else {
             throw new Error(data.error || 'Failed to load events');
         }

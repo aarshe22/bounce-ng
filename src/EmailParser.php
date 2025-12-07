@@ -713,12 +713,28 @@ class EmailParser {
             $localPart = $parts[0];
             $domain = $parts[1];
             
-            // Check if domain is an Outlook server domain
-            // Pattern: subdomain.prod.outlook.com or similar Outlook infrastructure
+            // Check if domain is a tracking/temporary email server domain
+            // Pattern 1: Outlook server domains (prod.outlook.com, etc.)
             $isOutlookServerDomain = (
                 preg_match('/\.(prod|namprd|eurprd|asprd)\.outlook\.com$/i', $domain) ||
                 preg_match('/\.(namp|eurprd|asprd|namprd)\d+\.(prod|outlook)\.com$/i', $domain) ||
                 preg_match('/^[a-z0-9]+p\d+mb\d+\.(namp|eurprd|asprd|namprd)\d+\.prod\.outlook\.com$/i', $domain)
+            );
+            
+            // Pattern 2: Gmail tracking addresses (mail.gmail.com with long random strings)
+            $isGmailTracking = (
+                preg_match('/^mail\.gmail\.com$/i', $domain) &&
+                // Gmail tracking addresses have long random strings with hyphens/underscores
+                preg_match('/^[a-z0-9]+[+_-][a-z0-9]+[+_-][a-z0-9]+/i', $localPart) &&
+                strlen($localPart) > 30 // Gmail tracking addresses are typically very long
+            );
+            
+            // Pattern 3: Local/internal tracking domains (like remington.local)
+            $isInternalTracking = (
+                preg_match('/\.local$/i', $domain) &&
+                // UUID pattern in local part
+                (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $localPart) ||
+                 preg_match('/^[0-9a-f]{32}$/i', $localPart))
             );
             
             if ($isOutlookServerDomain) {
@@ -736,6 +752,16 @@ class EmailParser {
                     // This is an Outlook tracking address - filter it out
                     return false;
                 }
+            }
+            
+            if ($isGmailTracking) {
+                // This is a Gmail tracking address - filter it out
+                return false;
+            }
+            
+            if ($isInternalTracking) {
+                // This is an internal tracking address - filter it out
+                return false;
             }
             
             return true;

@@ -41,16 +41,54 @@ try {
         $cronScript = __DIR__ . '/../notify-cron.php';
         $phpBinary = PHP_BINARY;
         
+        // Ensure script exists
+        if (!file_exists($cronScript)) {
+            error_log("Cron script not found: {$cronScript}");
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Cron script not found']);
+            exit(1);
+        }
+        
         // Build command - execute exactly as cron would
+        // Use absolute path and ensure we're in the right directory
+        $cronScript = realpath($cronScript);
+        $workingDir = dirname($cronScript);
         $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' 2>&1';
+        
+        // Log the command for debugging
+        error_log("Executing cron command: {$command} in directory: {$workingDir}");
         
         // Execute in background (non-blocking)
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             // Windows
-            pclose(popen("start /B " . $command, "r"));
+            $handle = popen("start /B " . $command, "r");
+            if ($handle === false) {
+                error_log("Failed to start cron script on Windows");
+            } else {
+                pclose($handle);
+            }
         } else {
-            // Unix/Linux
-            exec($command . ' > /dev/null 2>&1 &');
+            // Unix/Linux - use nohup to ensure it continues after parent exits
+            // Change to script directory and execute
+            // Use full path to nohup if available, otherwise just run in background
+            $nohupPath = trim(shell_exec('which nohup 2>/dev/null') ?: 'nohup');
+            $fullCommand = "cd " . escapeshellarg($workingDir) . " && " . escapeshellarg($nohupPath) . " " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 & echo $!";
+            
+            $pid = trim(shell_exec($fullCommand));
+            
+            if (empty($pid) || !is_numeric($pid)) {
+                // Fallback: try without nohup
+                $fallbackCommand = "cd " . escapeshellarg($workingDir) . " && " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 &";
+                exec($fallbackCommand, $output, $returnVar);
+                
+                if ($returnVar !== 0) {
+                    error_log("Failed to execute cron script. Return code: {$returnVar}, Output: " . implode("\n", $output));
+                } else {
+                    error_log("Cron script started successfully (fallback method)");
+                }
+            } else {
+                error_log("Cron script started successfully with PID: {$pid}");
+            }
         }
         
         // Don't return anything - request already finished
