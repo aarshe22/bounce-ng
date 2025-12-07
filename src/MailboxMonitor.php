@@ -84,6 +84,14 @@ class MailboxMonitor {
     }
 
     public function processInbox() {
+        // Verify database schema on each run
+        try {
+            $this->db->verifySchema();
+        } catch (\Exception $e) {
+            $this->eventLogger->log('warning', "Database schema verification failed: " . $e->getMessage(), null, $this->mailbox['id']);
+            error_log("MailboxMonitor: Database schema verification failed: " . $e->getMessage());
+        }
+        
         $this->eventLogger->log('debug', "=== processInbox() START ===", null, $this->mailbox['id']);
         error_log("MailboxMonitor: === processInbox() START ===");
         
@@ -433,8 +441,13 @@ class MailboxMonitor {
         }
         
         // CRITICAL CHECKPOINT - This should ALWAYS execute after the if/elseif/else block
-        $this->eventLogger->log('info', "✓✓✓ CHECKPOINT: Reached AFTER BYPASS/IF/ELSE block. messageCount = {$messageCount}", null, $this->mailbox['id']);
+        // Force immediate write by calling error_log first, then EventLogger
         error_log("MailboxMonitor: ✓✓✓ CHECKPOINT: Reached AFTER BYPASS/IF/ELSE block. messageCount = {$messageCount}");
+        $this->eventLogger->log('info', "✓✓✓ CHECKPOINT: Reached AFTER BYPASS/IF/ELSE block. messageCount = {$messageCount}", null, $this->mailbox['id']);
+        
+        // Double-check the log was written
+        $checkId = $this->db->lastInsertId();
+        error_log("MailboxMonitor: CHECKPOINT log written with ID: " . ($checkId ?: 'NULL'));
         
         // Log detailed info for debugging
         $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);

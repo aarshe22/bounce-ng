@@ -11,15 +11,15 @@ class EventLogger {
 
     public function log($severity, $message, $userId = null, $mailboxId = null, $bounceId = null, $metadata = null) {
         try {
-            $stmt = $this->db->prepare("
+            $sql = "
                 INSERT INTO events_log (event_type, severity, message, user_id, mailbox_id, bounce_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ");
-
+            ";
+            
             $eventType = $this->determineEventType($severity, $message);
             $metadataJson = $metadata ? json_encode($metadata) : null;
-
-            $stmt->execute([
+            
+            $params = [
                 $eventType,
                 $severity,
                 $message,
@@ -27,10 +27,23 @@ class EventLogger {
                 $mailboxId,
                 $bounceId,
                 $metadataJson
-            ]);
+            ];
+            
+            // Log SQL for debugging
+            $this->db->logSql($sql, $params);
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            // Verify the log was written
+            $lastId = $this->db->lastInsertId();
+            if (!$lastId) {
+                error_log("EventLogger WARNING: Log written but lastInsertId returned 0. Message: " . substr($message, 0, 100));
+            }
         } catch (\Exception $e) {
             // Fallback to error_log if database write fails
             error_log("EventLogger ERROR: Failed to write log - " . $e->getMessage() . " | Message: " . $message);
+            error_log("EventLogger ERROR: SQL: " . $sql . " | Params: " . json_encode($params ?? []));
         }
     }
 

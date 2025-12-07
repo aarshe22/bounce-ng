@@ -296,5 +296,77 @@ Bounce Monitor System'
     public function inTransaction() {
         return $this->pdo->inTransaction();
     }
+
+    /**
+     * Verify database schema integrity and log any issues
+     */
+    public function verifySchema() {
+        $requiredTables = [
+            'users', 'relay_providers', 'mailboxes', 'bounces', 
+            'recipient_domains', 'notifications_queue', 'events_log',
+            'smtp_codes', 'notification_template', 'settings'
+        ];
+        
+        $issues = [];
+        
+        // Use error_log to avoid circular dependency with EventLogger
+        error_log("Database: Starting schema verification");
+        
+        foreach ($requiredTables as $table) {
+            try {
+                $stmt = $this->pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='{$table}'");
+                $result = $stmt->fetch();
+                
+                if (!$result) {
+                    $issues[] = "Table '{$table}' is missing";
+                    error_log("Database schema issue: Table '{$table}' is missing");
+                } else {
+                    // Verify key columns exist for critical tables
+                    if ($table === 'events_log') {
+                        $stmt = $this->pdo->query("PRAGMA table_info(events_log)");
+                        $columns = $stmt->fetchAll();
+                        $columnNames = array_column($columns, 'name');
+                        $requiredColumns = ['id', 'event_type', 'severity', 'message', 'created_at'];
+                        foreach ($requiredColumns as $col) {
+                            if (!in_array($col, $columnNames)) {
+                                $issues[] = "Table '{$table}' missing column '{$col}'";
+                                error_log("Database schema issue: Table '{$table}' missing column '{$col}'");
+                            }
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                $issues[] = "Error checking table '{$table}': " . $e->getMessage();
+                error_log("Database schema check error for '{$table}': " . $e->getMessage());
+            }
+        }
+        
+        if (empty($issues)) {
+            error_log("Database: Schema verification passed - all tables and columns present");
+        } else {
+            error_log("Database: Schema verification found " . count($issues) . " issues");
+        }
+        
+        return $issues;
+    }
+
+    /**
+     * Log SQL query for debugging (using error_log to avoid circular dependency)
+     */
+    public function logSql($sql, $params = []) {
+        $logMessage = "SQL: " . $sql;
+        if (!empty($params)) {
+            $logMessage .= " | Params: " . json_encode($params);
+        }
+        error_log("Database SQL: " . $logMessage);
+        
+        // Also try to log via EventLogger if possible (but don't fail if it causes issues)
+        try {
+            $eventLogger = new EventLogger();
+            $eventLogger->log('debug', $logMessage, null, null);
+        } catch (\Exception $e) {
+            // Ignore - error_log already captured it
+        }
+    }
 }
 
