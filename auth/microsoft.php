@@ -1,36 +1,30 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config.php';
 
 use BounceNG\Auth;
 
-$auth = new Auth();
-$provider = $auth->getMicrosoftProvider();
-
-if (!isset($_GET['code'])) {
+try {
+    $auth = new Auth();
+    
+    // Check if OAuth credentials are configured
+    if (empty(MICROSOFT_CLIENT_ID) || empty(MICROSOFT_CLIENT_SECRET)) {
+        throw new Exception("Microsoft OAuth credentials not configured. Please check your .env file.");
+    }
+    
+    $provider = $auth->getMicrosoftProvider();
     $authUrl = $provider->getAuthorizationUrl([
         'scope' => ['openid', 'profile', 'email']
     ]);
     $_SESSION['oauth2state'] = $provider->getState();
     header('Location: ' . $authUrl);
     exit;
-}
-
-if (empty($_GET['state']) || ($_GET['state'] !== $_SESSION['oauth2state'])) {
-    unset($_SESSION['oauth2state']);
-    header('Location: /login.php?error=invalid_state');
-    exit;
-}
-
-try {
-    $user = $auth->handleOAuthCallback('microsoft', $_GET['code']);
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['user_email'] = $user['email'];
-    $_SESSION['user_name'] = $user['name'];
-    $_SESSION['is_admin'] = $user['is_admin'];
-    
-    header('Location: /index.php');
 } catch (Exception $e) {
+    error_log("Microsoft OAuth Error: " . $e->getMessage());
     header('Location: /login.php?error=' . urlencode($e->getMessage()));
+    exit;
 }
 

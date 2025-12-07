@@ -6,6 +6,11 @@ RewriteCond %{REQUEST_URI} ^/auth/([^/]+)$ [NC]
 RewriteCond %{DOCUMENT_ROOT}/auth/$1.php -f
 RewriteRule ^auth/([^/]+)$ /auth/$1.php [L]
 
+# Handle auth callback routes - map /auth/google/callback to /auth/google/callback.php
+RewriteCond %{REQUEST_URI} ^/auth/([^/]+)/callback$ [NC]
+RewriteCond %{DOCUMENT_ROOT}/auth/$1/callback.php -f
+RewriteRule ^auth/([^/]+)/callback$ /auth/$1/callback.php [L]
+
 # Handle api routes - map /api/endpoint to /api/endpoint.php if file exists
 RewriteCond %{REQUEST_URI} ^/api/([^/]+)$ [NC]
 RewriteCond %{DOCUMENT_ROOT}/api/$1.php -f
