@@ -31,12 +31,47 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshBtn.addEventListener('click', loadEventLog);
     }
     
-    // Add change handler for event filter
+    // Add change handlers for event log filtering and sorting
     const eventFilter = document.getElementById('eventFilter');
     if (eventFilter) {
         eventFilter.addEventListener('change', function() {
-            eventLogCurrentPage = 1; // Reset to first page when filter changes
-            loadEventLog();
+            eventLogCurrentPage = 1;
+            applyEventLogFilters();
+        });
+    }
+    
+    const eventLogSearch = document.getElementById('eventLogSearch');
+    if (eventLogSearch) {
+        eventLogSearch.addEventListener('input', function() {
+            eventLogCurrentPage = 1;
+            applyEventLogFilters();
+        });
+    }
+    
+    const eventLogSort = document.getElementById('eventLogSort');
+    if (eventLogSort) {
+        eventLogSort.addEventListener('change', function() {
+            eventLogCurrentPage = 1;
+            applyEventLogFilters();
+        });
+    }
+    
+    // Add change handlers for notification queue filtering and sorting
+    // Filter can be applied with Enter key or Apply button
+    const notificationQueueFilter = document.getElementById('notificationQueueFilter');
+    if (notificationQueueFilter) {
+        notificationQueueFilter.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                applyNotificationQueueFilters();
+            }
+        });
+    }
+    
+    // Sort changes immediately when dropdown changes
+    const notificationQueueSort = document.getElementById('notificationQueueSort');
+    if (notificationQueueSort) {
+        notificationQueueSort.addEventListener('change', function() {
+            applyNotificationQueueFilters();
         });
     }
     
@@ -106,11 +141,8 @@ function calculateEventLogPageSize() {
     // Calculate maximum rows that fit
     const maxRows = Math.floor(availableHeight / actualLineHeight);
     
-    // Use maximum rows, but ensure at least 10
-    eventLogPageSize = Math.max(10, maxRows);
-    
-    // Log for debugging (can be removed)
-    console.log(`Event log pagination: container height=${containerHeight}px, line height=${actualLineHeight}px, page size=${eventLogPageSize}`);
+    // Use maximum rows, but ensure at least 50
+    eventLogPageSize = Math.max(50, maxRows);
 }
 
 function eventLogPrevPage() {
