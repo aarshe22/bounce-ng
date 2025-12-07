@@ -434,21 +434,12 @@ class MailboxMonitor {
         $this->eventLogger->log('debug', "AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}", null, $this->mailbox['id']);
         error_log("MailboxMonitor: AFTER BYPASS/IF/ELSE: messageCount = {$messageCount}");
         
-        $this->eventLogger->log('debug', "AFTER if/else - Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: AFTER if/else - Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}");
-        error_log("MailboxMonitor: Exited messageCount == 0 if/else block. Final messageCount = {$messageCount}");
-        
         // Log detailed info for debugging
         $this->eventLogger->log('info', "DEBUG: Configured inbox folder: '{$inbox}', Actual mailbox path: '{$actualMailboxPath}', Final message count: {$messageCount}, Unseen: {$unseenCount}", null, $this->mailbox['id']);
         error_log("MailboxMonitor: DEBUG: Configured inbox folder: '{$inbox}', Final message count: {$messageCount}");
-        $this->eventLogger->log('debug', "SECOND CHECK: About to check if messageCount == 0. Current value: {$messageCount}", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: SECOND CHECK: About to check if messageCount == 0. Current value: {$messageCount}");
         
-        $isZeroSecond = ($messageCount == 0);
-        $this->eventLogger->log('debug', "SECOND CHECK: Comparison result: messageCount == 0 is " . var_export($isZeroSecond, true), null, $this->mailbox['id']);
-        error_log("MailboxMonitor: SECOND CHECK: Comparison result: messageCount == 0 is " . var_export($isZeroSecond, true));
-        
-        if ($isZeroSecond) {
+        // Final check - if messageCount is 0, return early
+        if ($messageCount == 0) {
             $this->eventLogger->log('debug', "SECOND CHECK: messageCount is 0, returning early", null, $this->mailbox['id']);
             error_log("MailboxMonitor: SECOND CHECK: messageCount is 0, returning early");
             // List all available folders and their message counts to help debug
@@ -469,6 +460,8 @@ class MailboxMonitor {
             $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Available folders: {$foldersList}", null, $this->mailbox['id']);
             // Return early if no messages
             $this->eventLogger->log('debug', "Returning early because messageCount is 0", null, $this->mailbox['id']);
+            $this->eventLogger->log('warning', "No messages found in folder '{$inbox}'. Returning early.", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: No messages found, returning early");
             return [
                 'processed' => 0,
                 'skipped' => 0,
@@ -476,10 +469,8 @@ class MailboxMonitor {
             ];
         }
         
-        $this->eventLogger->log('debug', "SECOND CHECK: messageCount is NOT 0 ({$messageCount}), proceeding past early return check", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: SECOND CHECK: messageCount is NOT 0 ({$messageCount}), proceeding past early return check");
-        $this->eventLogger->log('info', "messageCount is {$messageCount}, proceeding to process messages", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: messageCount is {$messageCount}, proceeding to process messages");
+        $this->eventLogger->log('info', "✓ messageCount is {$messageCount}, proceeding to process messages", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: ✓ messageCount is {$messageCount}, proceeding to process messages");
         $this->eventLogger->log('info', "Starting to process {$messageCount} messages from inbox '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
         error_log("MailboxMonitor: Starting to process {$messageCount} messages from inbox '{$inbox}'");
 
@@ -558,7 +549,8 @@ class MailboxMonitor {
             ];
         }
         
-        $this->eventLogger->log('info', "Processing " . count($uids) . " messages using " . ($usingUids ? "UIDs" : "message numbers"), null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "✓ Processing " . count($uids) . " messages using " . ($usingUids ? "UIDs" : "message numbers"), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: ✓ Processing " . count($uids) . " messages using " . ($usingUids ? "UIDs" : "message numbers"));
         
         // Process messages in reverse order to avoid number shifting issues
         $uids = array_reverse($uids);
@@ -566,7 +558,13 @@ class MailboxMonitor {
         // Determine which flag to use for IMAP functions
         $imapFlag = $usingUids ? FT_UID : 0;
         
+        $this->eventLogger->log('info', "✓ Starting message processing loop. Total messages: " . count($uids), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: ✓ Starting message processing loop. Total messages: " . count($uids));
+        
         foreach ($uids as $index => $uid) {
+            if (($index + 1) % 10 == 0 || $index == 0) {
+                $this->eventLogger->log('info', "Processing message " . ($index + 1) . " of " . count($uids) . " (" . ($usingUids ? "UID" : "number") . ": {$uid})", null, $this->mailbox['id']);
+            }
             $this->eventLogger->log('debug', "Processing message " . ($index + 1) . " of " . count($uids) . " (" . ($usingUids ? "UID" : "number") . ": {$uid})", null, $this->mailbox['id']);
             try {
                 // Fetch message structure to understand MIME parts
@@ -631,14 +629,19 @@ class MailboxMonitor {
                 $rawEmail = $rawEmail . "\r\n\r\n---ALL_PARTS---\r\n\r\n" . $allPartsText;
 
                 $parser = new EmailParser($rawEmail);
+                
+                $isBounce = $parser->isBounce();
+                $this->eventLogger->log('debug', "Message " . ($index + 1) . " (UID: {$uid}) - isBounce: " . var_export($isBounce, true), null, $this->mailbox['id']);
 
-                if (!$parser->isBounce()) {
+                if (!$isBounce) {
                     // Not a bounce, move to skipped
                     $this->moveMessage($uid, $skipped, $usingUids);
                     $skippedCount++;
-                    $this->eventLogger->log('info', "Message " . ($usingUids ? "UID" : "number") . " {$uid} is not a bounce, moved to skipped", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "Message " . ($index + 1) . " (" . ($usingUids ? "UID" : "number") . ": {$uid}) is not a bounce, moved to skipped", null, $this->mailbox['id']);
                     continue;
                 }
+
+                $this->eventLogger->log('debug', "Message " . ($index + 1) . " (UID: {$uid}) is a bounce, extracting data...", null, $this->mailbox['id']);
 
                 // Extract bounce data
                 $originalTo = $parser->getOriginalTo();
@@ -696,7 +699,11 @@ class MailboxMonitor {
                 $processedCount++;
 
                 $ccCount = is_array($originalCc) ? count($originalCc) : 0;
-                $this->eventLogger->log('success', "Processed bounce for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: {$ccCount} addresses)", null, $this->mailbox['id'], $bounceId);
+                $this->eventLogger->log('success', "✓ Processed bounce " . ($index + 1) . "/" . count($uids) . " for {$originalTo} (Domain: {$recipientDomain}, Trust: {$trustScore}, CC: {$ccCount} addresses)", null, $this->mailbox['id'], $bounceId);
+                
+                if (($processedCount % 10 == 0) || $processedCount == 1) {
+                    $this->eventLogger->log('info', "Progress: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems", null, $this->mailbox['id']);
+                }
 
             } catch (\Exception $e) {
                 // Error processing, move to problem
@@ -710,8 +717,8 @@ class MailboxMonitor {
         $stmt = $this->db->prepare("UPDATE mailboxes SET last_processed = CURRENT_TIMESTAMP WHERE id = ?");
         $stmt->execute([$this->mailbox['id']]);
 
-        $this->eventLogger->log('info', "Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems", null, $this->mailbox['id']);
-        error_log("MailboxMonitor: Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems");
+        $this->eventLogger->log('info', "✓✓✓ Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: ✓✓✓ Processing complete: {$processedCount} processed, {$skippedCount} skipped, {$problemCount} problems");
 
         $this->eventLogger->log('debug', "=== processInbox() END - returning result ===", null, $this->mailbox['id']);
         error_log("MailboxMonitor: === processInbox() END - returning result ===");

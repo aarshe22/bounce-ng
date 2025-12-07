@@ -72,7 +72,7 @@ class EventLogger {
         $sql = "
             SELECT * FROM events_log 
             {$whereClause}
-            ORDER BY created_at DESC 
+            ORDER BY id DESC 
             LIMIT ?
         ";
         
