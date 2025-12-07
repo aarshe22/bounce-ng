@@ -246,61 +246,102 @@ class MailboxMonitor {
         
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
-        // SEQUENTIAL FETCH AS PRIMARY METHOD - Most reliable way to get ALL messages
-        // Don't trust imap_search - it may filter or miss messages
-        // Start from message 1 and keep going until we can't fetch anymore
-        $this->eventLogger->log('info', "Fetching ALL messages using sequential method (starting from message 1)...", null, $this->mailbox['id']);
+        // MULTI-METHOD MESSAGE DETECTION - Try multiple approaches to find messages
+        // Some IMAP servers have messages starting at different numbers or require different methods
+        $this->eventLogger->log('info', "Detecting messages in folder '{$inbox}' using multiple methods...", null, $this->mailbox['id']);
         
         $uids = [];
-        $usingUids = false; // Using message numbers for sequential fetch
+        $usingUids = false;
         
         // Clear any previous IMAP errors
         @\imap_errors();
         
-        // Sequential fetch: start from 1 and keep going until we can't fetch anymore
-        // This is the most reliable method - it gets EVERYTHING regardless of status
-        // Use a smarter approach: keep going until we hit a long gap of missing messages
-        $maxMessages = 50000; // Reasonable upper limit
-        $consecutiveFailures = 0;
-        $maxConsecutiveFailures = 50; // Stop after 50 consecutive failures (handles gaps)
-        $lastFoundMessage = 0;
-        
-        for ($msgNum = 1; $msgNum <= $maxMessages; $msgNum++) {
-            // Try to fetch the header - if it exists, we have a message
-            $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
-            
-            if ($testHeader && !empty(trim($testHeader))) {
-                $uids[] = $msgNum;
-                $lastFoundMessage = $msgNum;
-                $consecutiveFailures = 0; // Reset failure counter
-                
-                // Log progress every 25 messages for visibility
-                if (count($uids) % 25 == 0) {
-                    $this->eventLogger->log('info', "Sequential fetch: found " . count($uids) . " messages so far (currently at message {$msgNum})...", null, $this->mailbox['id']);
-                }
+        // METHOD 1: Try imap_search with ALL (most reliable if it works)
+        $this->eventLogger->log('debug', "Method 1: Trying imap_search('ALL')...", null, $this->mailbox['id']);
+        $searchResults = @\imap_search($this->imapConnection, 'ALL');
+        if ($searchResults && is_array($searchResults) && count($searchResults) > 0) {
+            $uids = $searchResults;
+            $usingUids = false; // imap_search returns message numbers
+            $this->eventLogger->log('info', "✓ imap_search('ALL') found " . count($uids) . " messages", null, $this->mailbox['id']);
+        } else {
+            // METHOD 2: Try imap_search with ALL and SE_UID
+            $this->eventLogger->log('debug', "Method 2: Trying imap_search('ALL', SE_UID)...", null, $this->mailbox['id']);
+            $searchResults = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+            if ($searchResults && is_array($searchResults) && count($searchResults) > 0) {
+                $uids = $searchResults;
+                $usingUids = true; // SE_UID returns UIDs
+                $this->eventLogger->log('info', "✓ imap_search('ALL', SE_UID) found " . count($uids) . " messages", null, $this->mailbox['id']);
             } else {
-                $consecutiveFailures++;
-                
-                // Only stop if:
-                // 1. We've found at least one message (so we know messages exist)
-                // 2. We've hit the max consecutive failures (we're past the end)
-                // 3. We're far enough past the last found message (safety check)
-                if (count($uids) > 0 && $consecutiveFailures >= $maxConsecutiveFailures) {
-                    $this->eventLogger->log('info', "Reached end of messages after {$consecutiveFailures} consecutive failures (last found: {$lastFoundMessage}). Found " . count($uids) . " total messages.", null, $this->mailbox['id']);
-                    break;
-                }
-                
-                // If we haven't found any messages yet, keep trying longer
-                // Some IMAP servers might have gaps at the start
-                if (count($uids) == 0 && $msgNum > 100) {
-                    $this->eventLogger->log('warning', "No messages found in first 100 attempts. Stopping sequential fetch.", null, $this->mailbox['id']);
-                    break;
+                // METHOD 3: Try imap_num_msg to get total count, then fetch sequentially
+                $this->eventLogger->log('debug', "Method 3: Trying imap_num_msg() to get message count...", null, $this->mailbox['id']);
+                $totalMessages = @\imap_num_msg($this->imapConnection);
+                if ($totalMessages && $totalMessages > 0) {
+                    $this->eventLogger->log('info', "✓ imap_num_msg() reports {$totalMessages} messages, fetching sequentially...", null, $this->mailbox['id']);
+                    for ($msgNum = 1; $msgNum <= $totalMessages; $msgNum++) {
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
+                        if ($testHeader && !empty(trim($testHeader))) {
+                            $uids[] = $msgNum;
+                        }
+                    }
+                    $usingUids = false;
+                    $this->eventLogger->log('info', "✓ Sequential fetch from imap_num_msg found " . count($uids) . " messages", null, $this->mailbox['id']);
+                } else {
+                    // METHOD 4: Aggressive sequential fetch - try a much wider range
+                    // Some servers have messages starting at higher numbers
+                    $this->eventLogger->log('debug', "Method 4: Trying aggressive sequential fetch (up to 10,000 messages)...", null, $this->mailbox['id']);
+                    $maxMessages = 10000;
+                    $consecutiveFailures = 0;
+                    $maxConsecutiveFailures = 100; // More tolerant of gaps
+                    $lastFoundMessage = 0;
+                    $foundAny = false;
+                    
+                    for ($msgNum = 1; $msgNum <= $maxMessages; $msgNum++) {
+                        // Try multiple methods to detect message existence
+                        $testHeader = @\imap_fetchheader($this->imapConnection, $msgNum);
+                        $testBody = @\imap_body($this->imapConnection, $msgNum, FT_PEEK);
+                        
+                        if (($testHeader && !empty(trim($testHeader))) || ($testBody !== false && $testBody !== '')) {
+                            $uids[] = $msgNum;
+                            $lastFoundMessage = $msgNum;
+                            $consecutiveFailures = 0;
+                            $foundAny = true;
+                            
+                            // Log first message found
+                            if (count($uids) == 1) {
+                                $this->eventLogger->log('info', "✓ Found first message at number {$msgNum}", null, $this->mailbox['id']);
+                            }
+                            
+                            // Log progress every 25 messages
+                            if (count($uids) % 25 == 0) {
+                                $this->eventLogger->log('info', "Sequential fetch: found " . count($uids) . " messages so far (currently at message {$msgNum})...", null, $this->mailbox['id']);
+                            }
+                        } else {
+                            $consecutiveFailures++;
+                            
+                            // If we found messages, stop after max consecutive failures
+                            if ($foundAny && $consecutiveFailures >= $maxConsecutiveFailures) {
+                                $this->eventLogger->log('info', "Reached end of messages after {$consecutiveFailures} consecutive failures (last found: {$lastFoundMessage}). Found " . count($uids) . " total messages.", null, $this->mailbox['id']);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if ($foundAny) {
+                        $this->eventLogger->log('info', "✓ Aggressive sequential fetch found " . count($uids) . " messages", null, $this->mailbox['id']);
+                    }
                 }
             }
         }
         
         if (empty($uids)) {
-            $this->eventLogger->log('warning', "Sequential fetch found no messages in folder '{$inbox}'. Folder may be empty.", null, $this->mailbox['id']);
+            // Last resort: Check imap_status for message count
+            $this->eventLogger->log('debug', "Method 5: Checking imap_status for message count...", null, $this->mailbox['id']);
+            $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES);
+            if ($status && isset($status->messages) && $status->messages > 0) {
+                $this->eventLogger->log('warning', "imap_status reports {$status->messages} messages but we couldn't fetch them. This may indicate an IMAP server issue.", null, $this->mailbox['id']);
+            }
+            
+            $this->eventLogger->log('warning', "All detection methods failed - no messages found in folder '{$inbox}'. Folder may be empty or IMAP server has issues.", null, $this->mailbox['id']);
             return [
                 'processed' => 0,
                 'skipped' => 0,
@@ -309,7 +350,9 @@ class MailboxMonitor {
         }
         
         $messageCount = count($uids);
-        $this->eventLogger->log('info', "✓ Found {$messageCount} messages using sequential fetch (message numbers 1-" . max($uids) . ")", null, $this->mailbox['id']);
+        $methodDesc = $usingUids ? "UIDs" : "message numbers";
+        $rangeDesc = !empty($uids) ? " (range: " . min($uids) . "-" . max($uids) . ")" : "";
+        $this->eventLogger->log('info', "✓ Found {$messageCount} messages using {$methodDesc}{$rangeDesc}", null, $this->mailbox['id']);
         $this->eventLogger->log('info', "Processing {$messageCount} messages from folder '{$inbox}' (all messages, read and unread)", null, $this->mailbox['id']);
 
         $processedCount = 0;

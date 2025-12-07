@@ -569,15 +569,8 @@ async function runProcessing() {
             return;
         }
         
-        // Start auto-refresh during processing for real-time updates
-        // Clear any existing interval first
-        if (eventPollInterval) {
-            clearInterval(eventPollInterval);
-        }
-        // Poll frequently during processing to see real-time progress
-        eventPollInterval = setInterval(() => {
-            loadEventLog();
-        }, 1000); // Poll every 1 second during processing
+        // NO auto-refresh - user must manually refresh event log
+        // This makes the SPA more robust and prevents interference with background processing
         
         // Process all mailboxes - TRUE fire-and-forget
         // Send requests and immediately continue - don't wait for ANY response
@@ -615,14 +608,7 @@ async function runProcessing() {
                 runBtn.innerHTML = originalText;
             }
             
-            // Stop auto-refresh after processing starts (user can manually refresh)
-            // Keep it running for a bit longer to catch initial progress, then stop
-            setTimeout(() => {
-                if (eventPollInterval) {
-                    clearInterval(eventPollInterval);
-                    eventPollInterval = null;
-                }
-            }, 30000); // Stop auto-refresh after 30 seconds (processing may still be running)
+            // No auto-refresh - user must manually refresh event log
             
             // Refresh data
             loadMailboxes();
@@ -641,11 +627,7 @@ async function runProcessing() {
             runBtn.innerHTML = originalText;
         }
         
-        // Stop auto-refresh on error (no polling needed)
-        if (eventPollInterval) {
-            clearInterval(eventPollInterval);
-            eventPollInterval = null;
-        }
+        // No auto-refresh needed
     }
 }
 
@@ -851,7 +833,8 @@ function updateHeaderStats(stats) {
 // Event Log
 async function loadEventLog() {
     const refreshBtn = document.getElementById('refreshLogBtn');
-    const originalHtml = refreshBtn ? refreshBtn.innerHTML : null;
+    // Store original HTML - use a default if button doesn't exist yet
+    const originalHtml = refreshBtn ? refreshBtn.innerHTML : '<i class="bi bi-arrow-clockwise"></i> Refresh';
     
     try {
         if (refreshBtn) {
@@ -879,7 +862,7 @@ async function loadEventLog() {
         // Still restore button even on error
     } finally {
         // Always restore button state, even if there was an error
-        if (refreshBtn && originalHtml) {
+        if (refreshBtn) {
             refreshBtn.disabled = false;
             refreshBtn.innerHTML = originalHtml;
         }
