@@ -441,21 +441,50 @@ class MailboxMonitor {
 
         // Get all message UIDs first to avoid issues with message numbers shifting when messages are moved
         // Try with SE_UID first, then without if that fails
+        $uids = false;
+        $usingUids = true; // Track whether we're using UIDs or message numbers
+        $lastError = @\imap_last_error();
+        $this->eventLogger->log('debug', "Attempting imap_search with SE_UID flag. Last IMAP error before search: " . ($lastError ?: 'none'), null, $this->mailbox['id']);
+        
         $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
+        $searchError = @\imap_last_error();
+        
         if (!$uids || !is_array($uids) || empty($uids)) {
-            // Fallback: try without SE_UID flag
+            $this->eventLogger->log('debug', "imap_search with SE_UID returned: " . var_export($uids, true) . ". IMAP error: " . ($searchError ?: 'none'), null, $this->mailbox['id']);
+            
+            // Fallback: try without SE_UID flag (returns message numbers, not UIDs)
             $uids = @\imap_search($this->imapConnection, 'ALL');
+            $searchError2 = @\imap_last_error();
+            
             if ($uids && is_array($uids) && !empty($uids)) {
-                $this->eventLogger->log('info', "Got message numbers (not UIDs) from imap_search: " . count($uids), null, $this->mailbox['id']);
+                $usingUids = false; // These are message numbers, not UIDs
+                $this->eventLogger->log('info', "Got message numbers (not UIDs) from imap_search: " . count($uids) . ". IMAP error: " . ($searchError2 ?: 'none'), null, $this->mailbox['id']);
             } else {
-                // Last resort: use sequential numbers
-                $this->eventLogger->log('warning', "Could not get message UIDs, falling back to sequential processing", null, $this->mailbox['id']);
-                $uids = $messageCount > 0 ? range(1, $messageCount) : [];
+                $this->eventLogger->log('warning', "imap_search without SE_UID also failed. Returned: " . var_export($uids, true) . ". IMAP error: " . ($searchError2 ?: 'none'), null, $this->mailbox['id']);
+                
+                // Last resort: use sequential numbers (these are message numbers, not UIDs)
+                $usingUids = false;
+                // Double-check message count is still valid
+                $verifyCount = @\imap_num_msg($this->imapConnection);
+                $this->eventLogger->log('debug', "Verifying message count for sequential fallback. imap_num_msg: {$verifyCount}, stored count: {$messageCount}", null, $this->mailbox['id']);
+                
+                if ($verifyCount > 0) {
+                    $uids = range(1, $verifyCount);
+                    $this->eventLogger->log('info', "Using sequential message numbers 1-{$verifyCount} as fallback", null, $this->mailbox['id']);
+                } elseif ($messageCount > 0) {
+                    $uids = range(1, $messageCount);
+                    $this->eventLogger->log('info', "Using stored message count ({$messageCount}) for sequential fallback", null, $this->mailbox['id']);
+                } else {
+                    $uids = [];
+                    $this->eventLogger->log('warning', "Both verifyCount and messageCount are 0, cannot create sequential UIDs", null, $this->mailbox['id']);
+                }
             }
+        } else {
+            $this->eventLogger->log('info', "Successfully got " . count($uids) . " message UIDs from imap_search with SE_UID", null, $this->mailbox['id']);
         }
         
         if (empty($uids)) {
-            $this->eventLogger->log('warning', "No message UIDs found to process", null, $this->mailbox['id']);
+            $this->eventLogger->log('error', "No message UIDs found to process after all attempts. Message count was: {$messageCount}", null, $this->mailbox['id']);
             return [
                 'processed' => 0,
                 'skipped' => 0,
@@ -463,38 +492,41 @@ class MailboxMonitor {
             ];
         }
         
-        $this->eventLogger->log('info', "Processing " . count($uids) . " messages using UIDs", null, $this->mailbox['id']);
+        $this->eventLogger->log('info', "Processing " . count($uids) . " messages using " . ($usingUids ? "UIDs" : "message numbers"), null, $this->mailbox['id']);
         
         // Process messages in reverse order to avoid number shifting issues
         $uids = array_reverse($uids);
         
+        // Determine which flag to use for IMAP functions
+        $imapFlag = $usingUids ? FT_UID : 0;
+        
         foreach ($uids as $index => $uid) {
-            $this->eventLogger->log('debug', "Processing message " . ($index + 1) . " of " . count($uids) . " (UID: {$uid})", null, $this->mailbox['id']);
+            $this->eventLogger->log('debug', "Processing message " . ($index + 1) . " of " . count($uids) . " (" . ($usingUids ? "UID" : "number") . ": {$uid})", null, $this->mailbox['id']);
             try {
                 // Fetch message structure to understand MIME parts
-                $structure = @\imap_fetchstructure($this->imapConnection, $uid, FT_UID);
+                $structure = @\imap_fetchstructure($this->imapConnection, $uid, $imapFlag);
                 if (!$structure) {
-                    $this->eventLogger->log('warning', "Could not fetch structure for message UID {$uid}, skipping", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Could not fetch structure for message " . ($usingUids ? "UID" : "number") . " {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
                 // Fetch headers
-                $rawHeader = @\imap_fetchbody($this->imapConnection, $uid, '0', FT_UID);
+                $rawHeader = @\imap_fetchbody($this->imapConnection, $uid, '0', $imapFlag);
                 if ($rawHeader === false || $rawHeader === '') {
-                    $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, FT_UID);
+                    $rawHeader = @\imap_fetchheader($this->imapConnection, $uid, $imapFlag);
                 }
                 
                 if (!$rawHeader || $rawHeader === '') {
-                    $this->eventLogger->log('warning', "Could not fetch header for message UID {$uid}, skipping", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Could not fetch header for message " . ($usingUids ? "UID" : "number") . " {$uid}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
                 // RECURSIVELY fetch ALL MIME parts from the structure
                 $rawParts = ['0' => $rawHeader];
-                $this->fetchAllMimeParts($this->imapConnection, $uid, $structure, $rawParts, '');
+                $this->fetchAllMimeParts($this->imapConnection, $uid, $structure, $rawParts, '', $imapFlag);
                 
                 // Also get full body as fallback
-                $fullBody = @\imap_body($this->imapConnection, $uid, FT_UID) ?: '';
+                $fullBody = @\imap_body($this->imapConnection, $uid, $imapFlag) ?: '';
                 if (!empty($fullBody)) {
                     $rawParts['FULL_BODY'] = $fullBody;
                 }
@@ -536,9 +568,9 @@ class MailboxMonitor {
 
                 if (!$parser->isBounce()) {
                     // Not a bounce, move to skipped
-                    $this->moveMessage($uid, $skipped, true); // true = use UID
+                    $this->moveMessage($uid, $skipped, $usingUids);
                     $skippedCount++;
-                    $this->eventLogger->log('info', "Message UID {$uid} is not a bounce, moved to skipped", null, $this->mailbox['id']);
+                    $this->eventLogger->log('info', "Message " . ($usingUids ? "UID" : "number") . " {$uid} is not a bounce, moved to skipped", null, $this->mailbox['id']);
                     continue;
                 }
 
@@ -560,9 +592,9 @@ class MailboxMonitor {
 
                 if (!$originalTo || !$recipientDomain) {
                     // Cannot parse, move to problem
-                    $this->moveMessage($uid, $problem, true); // true = use UID
+                    $this->moveMessage($uid, $problem, $usingUids);
                     $problemCount++;
-                    $this->eventLogger->log('warning', "Cannot parse message UID {$uid}: missing original_to or domain", null, $this->mailbox['id']);
+                    $this->eventLogger->log('warning', "Cannot parse message " . ($usingUids ? "UID" : "number") . " {$uid}: missing original_to or domain", null, $this->mailbox['id']);
                     continue;
                 }
 
@@ -594,7 +626,7 @@ class MailboxMonitor {
                 $this->queueNotifications($bounceId, $originalCc);
 
                 // Move to processed
-                $this->moveMessage($uid, $processed, true); // true = use UID
+                $this->moveMessage($uid, $processed, $usingUids);
                 $processedCount++;
 
                 $ccCount = is_array($originalCc) ? count($originalCc) : 0;
@@ -602,9 +634,9 @@ class MailboxMonitor {
 
             } catch (\Exception $e) {
                 // Error processing, move to problem
-                $this->moveMessage($uid, $problem, true); // true = use UID
+                $this->moveMessage($uid, $problem, $usingUids);
                 $problemCount++;
-                $this->eventLogger->log('error', "Error processing message UID {$uid}: {$e->getMessage()}", null, $this->mailbox['id']);
+                $this->eventLogger->log('error', "Error processing message " . ($usingUids ? "UID" : "number") . " {$uid}: {$e->getMessage()}", null, $this->mailbox['id']);
             }
         }
 
@@ -713,7 +745,7 @@ class MailboxMonitor {
      * Recursively fetch all MIME parts from a message structure
      * This ensures we get ALL parts including deeply nested ones
      */
-    private function fetchAllMimeParts($connection, $uid, $structure, &$parts, $prefix = '') {
+    private function fetchAllMimeParts($connection, $uid, $structure, &$parts, $prefix = '', $imapFlag = FT_UID) {
         if (!$structure) {
             return;
         }
@@ -725,7 +757,7 @@ class MailboxMonitor {
                 $partIndex = $prefix ? ($prefix . '.' . $partNum) : (string)$partNum;
                 
                 // Fetch this part
-                $partBody = @\imap_fetchbody($connection, $uid, $partIndex, FT_UID);
+                $partBody = @\imap_fetchbody($connection, $uid, $partIndex, $imapFlag);
                 if ($partBody !== false && $partBody !== '') {
                     $parts[$partIndex] = $partBody;
                 }
@@ -733,11 +765,11 @@ class MailboxMonitor {
                 // If this part is itself multipart or message/rfc822, recurse
                 if (isset($part->parts) && is_array($part->parts) && count($part->parts) > 0) {
                     // This is a multipart part - recurse into it
-                    $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex);
+                    $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex, $imapFlag);
                 } elseif (isset($part->subtype) && strtolower($part->subtype) === 'rfc822') {
                     // This is a message/rfc822 part - fetch its sub-parts too
                     if (isset($part->parts) && is_array($part->parts)) {
-                        $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex);
+                        $this->fetchAllMimeParts($connection, $uid, $part, $parts, $partIndex, $imapFlag);
                     }
                 }
                 
@@ -746,7 +778,7 @@ class MailboxMonitor {
         } else {
             // Single part message - fetch it if we have a prefix
             if ($prefix) {
-                $partBody = @\imap_fetchbody($connection, $uid, $prefix, FT_UID);
+                $partBody = @\imap_fetchbody($connection, $uid, $prefix, $imapFlag);
                 if ($partBody !== false && $partBody !== '') {
                     $parts[$prefix] = $partBody;
                 }
