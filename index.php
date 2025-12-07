@@ -9,5 +9,6 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Serve the SPA
-readfile(__DIR__ . '/public/index.html');
+$html = file_get_contents(__DIR__ . '/public/index.html');
+echo $html;
 

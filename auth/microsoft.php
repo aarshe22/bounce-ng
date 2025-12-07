@@ -29,7 +29,7 @@ try {
     $_SESSION['user_name'] = $user['name'];
     $_SESSION['is_admin'] = $user['is_admin'];
     
-    header('Location: /');
+    header('Location: /index.php');
 } catch (Exception $e) {
     header('Location: /login.php?error=' . urlencode($e->getMessage()));
 }

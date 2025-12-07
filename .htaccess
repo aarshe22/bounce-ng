@@ -1,22 +1,20 @@
 RewriteEngine On
 RewriteBase /
 
-# Redirect to login if not authenticated (except for login and auth pages)
-RewriteCond %{REQUEST_URI} !^/login\.php$
-RewriteCond %{REQUEST_URI} !^/auth/
-RewriteCond %{REQUEST_URI} !^/api/
-RewriteCond %{REQUEST_URI} !^/public/
-RewriteCond %{HTTP_COOKIE} !PHPSESSID
-RewriteRule ^(.*)$ /login.php [R=302,L]
-
 # Route API requests
+RewriteCond %{REQUEST_URI} ^/api/
 RewriteRule ^api/(.*)$ /api/$1 [L]
 
 # Route auth requests
+RewriteCond %{REQUEST_URI} ^/auth/
 RewriteRule ^auth/(.*)$ /auth/$1 [L]
 
-# Serve index.html for SPA
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+# Allow direct access to login.php, auth/, api/, and public/ files
+RewriteCond %{REQUEST_URI} ^/(login\.php|logout\.php|auth/|api/|public/) [OR]
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# For all other requests, serve index.php (SPA)
 RewriteRule ^(.*)$ /index.php [L]
 

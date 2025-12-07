@@ -4,7 +4,7 @@ require_once __DIR__ . '/config.php';
 
 // If already logged in, redirect to dashboard
 if (isset($_SESSION['user_id'])) {
-    header('Location: /');
+    header('Location: /index.php');
     exit;
 }
 
