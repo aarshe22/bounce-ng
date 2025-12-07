@@ -15,14 +15,14 @@
             <div class="d-flex align-items-center">
                 <!-- View Toggle Buttons -->
                 <div class="btn-group me-3" role="group">
-                    <button type="button" class="btn btn-sm btn-outline-light active" id="viewControlsBtn" onclick="switchView('controls')">
-                        <i class="bi bi-gear"></i> Controls
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light" id="viewDashboardBtn" onclick="switchView('dashboard')">
+                    <button type="button" class="btn btn-sm btn-outline-light active" id="viewDashboardBtn" onclick="switchView('dashboard')">
                         <i class="bi bi-speedometer2"></i> Dashboard
                     </button>
                     <button type="button" class="btn btn-sm btn-outline-light" id="viewEventsBtn" onclick="switchView('events')">
                         <i class="bi bi-list-ul"></i> Event Log
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-light" id="viewControlsBtn" onclick="switchView('controls')">
+                        <i class="bi bi-gear"></i> Control Panel
                     </button>
                 </div>
                 <button class="btn btn-link text-white me-2" id="themeToggle" title="Toggle theme">
@@ -120,7 +120,7 @@
         </div>
 
         <!-- Dashboard View -->
-        <div id="viewDashboard" class="view-container" style="display: none;">
+        <div id="viewDashboard" class="view-container">
             <div class="card h-100">
                 <div class="card-header">
                     <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Dashboard</h5>
@@ -146,7 +146,20 @@
                     </div>
 
                     <div class="mb-3">
-                        <h6>Notification Queue</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0">Notification Queue</h6>
+                            <div class="d-flex gap-2">
+                                <input type="text" class="form-control form-control-sm" id="notificationQueueFilter" placeholder="Filter..." style="width: 200px;">
+                                <select class="form-select form-select-sm" id="notificationQueueSort" style="width: 150px;">
+                                    <option value="created_desc">Newest First</option>
+                                    <option value="created_asc">Oldest First</option>
+                                    <option value="recipient_asc">Recipient A-Z</option>
+                                    <option value="recipient_desc">Recipient Z-A</option>
+                                    <option value="domain_asc">Domain A-Z</option>
+                                    <option value="domain_desc">Domain Z-A</option>
+                                </select>
+                            </div>
+                        </div>
                         <div id="notificationQueue"></div>
                     </div>
                 </div>
@@ -158,13 +171,21 @@
             <div class="card h-100">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-list-ul"></i> Event Log</h5>
-                    <div>
-                        <select class="form-select form-select-sm d-inline-block w-auto me-2" id="eventFilter">
-                            <option value="">All Events</option>
+                    <div class="d-flex gap-2">
+                        <input type="text" class="form-control form-control-sm" id="eventLogSearch" placeholder="Search events..." style="width: 200px;">
+                        <select class="form-select form-select-sm" id="eventFilter">
+                            <option value="">All Severities</option>
                             <option value="info">Info</option>
                             <option value="success">Success</option>
                             <option value="warning">Warning</option>
                             <option value="error">Error</option>
+                            <option value="debug">Debug</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="eventLogSort" style="width: 150px;">
+                            <option value="id_desc">Newest First</option>
+                            <option value="id_asc">Oldest First</option>
+                            <option value="severity_asc">Severity A-Z</option>
+                            <option value="severity_desc">Severity Z-A</option>
                         </select>
                         <button class="btn btn-sm btn-primary" id="refreshLogBtn" title="Refresh Event Log">
                             <i class="bi bi-arrow-clockwise"></i> Refresh

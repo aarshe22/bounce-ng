@@ -68,12 +68,17 @@ function switchView(viewName) {
     } else if (viewName === 'events') {
         document.getElementById('viewEvents').style.display = 'block';
         document.getElementById('viewEventsBtn').classList.add('active');
+        // Recalculate page size when switching to events view (container is now visible)
+        setTimeout(() => {
+            calculateEventLogPageSize();
+            displayEventLogPage(); // Refresh display with new page size
+        }, 100);
     }
 }
 
 function initializeViews() {
-    // Set default view to Controls
-    switchView('controls');
+    // Set default view to Dashboard
+    switchView('dashboard');
 }
 
 // Event log pagination functions
@@ -81,13 +86,31 @@ function calculateEventLogPageSize() {
     const eventLogContainer = document.getElementById('eventLog');
     if (!eventLogContainer) return;
     
-    // Calculate how many events fit in the viewport
-    // Each event line is approximately 20px high (with padding)
-    const containerHeight = eventLogContainer.clientHeight;
-    const estimatedLineHeight = 20;
-    const pageSize = Math.max(10, Math.floor(containerHeight / estimatedLineHeight) - 2); // -2 for padding
+    // Calculate how many events fit in the viewport - maximize rows per page
+    // Measure actual line height by creating a test element
+    const testEvent = document.createElement('div');
+    testEvent.className = 'event info';
+    testEvent.innerHTML = '<span class="text-muted">[ID:99999]</span> <span class="text-muted">2025-12-07 12:00:00</span> <strong>INFO</strong>: Test event for height calculation';
+    testEvent.style.visibility = 'hidden';
+    testEvent.style.position = 'absolute';
+    eventLogContainer.appendChild(testEvent);
     
-    eventLogPageSize = pageSize;
+    const actualLineHeight = testEvent.offsetHeight || 20; // Fallback to 20px if measurement fails
+    eventLogContainer.removeChild(testEvent);
+    
+    // Get container height (accounting for padding)
+    const containerHeight = eventLogContainer.clientHeight;
+    const containerPadding = 16; // 8px top + 8px bottom
+    const availableHeight = containerHeight - containerPadding;
+    
+    // Calculate maximum rows that fit
+    const maxRows = Math.floor(availableHeight / actualLineHeight);
+    
+    // Use maximum rows, but ensure at least 10
+    eventLogPageSize = Math.max(10, maxRows);
+    
+    // Log for debugging (can be removed)
+    console.log(`Event log pagination: container height=${containerHeight}px, line height=${actualLineHeight}px, page size=${eventLogPageSize}`);
 }
 
 function eventLogPrevPage() {
@@ -98,11 +121,63 @@ function eventLogPrevPage() {
 }
 
 function eventLogNextPage() {
-    const totalPages = Math.ceil(eventLogAllEvents.length / eventLogPageSize);
+    const eventsToPage = eventLogFilteredEvents.length > 0 ? eventLogFilteredEvents : eventLogAllEvents;
+    const totalPages = Math.ceil(eventsToPage.length / eventLogPageSize);
     if (eventLogCurrentPage < totalPages) {
         eventLogCurrentPage++;
         displayEventLogPage();
     }
+}
+
+// Store filtered/sorted events for pagination
+let eventLogFilteredEvents = [];
+
+function applyEventLogFilters() {
+    // Get filter values
+    const severityFilter = document.getElementById('eventFilter')?.value || '';
+    const searchText = document.getElementById('eventLogSearch')?.value.toLowerCase() || '';
+    const sortValue = document.getElementById('eventLogSort')?.value || 'id_desc';
+    
+    // Filter events
+    let filtered = eventLogAllEvents.filter(event => {
+        // Severity filter
+        if (severityFilter && event.severity !== severityFilter) {
+            return false;
+        }
+        
+        // Search filter
+        if (searchText) {
+            const searchableText = `${event.id || ''} ${event.severity || ''} ${event.message || ''} ${event.created_at || ''}`.toLowerCase();
+            if (!searchableText.includes(searchText)) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    // Sort events
+    filtered.sort((a, b) => {
+        switch(sortValue) {
+            case 'id_desc':
+                return (b.id || 0) - (a.id || 0);
+            case 'id_asc':
+                return (a.id || 0) - (b.id || 0);
+            case 'severity_asc':
+                return (a.severity || '').localeCompare(b.severity || '');
+            case 'severity_desc':
+                return (b.severity || '').localeCompare(a.severity || '');
+            default:
+                return (b.id || 0) - (a.id || 0);
+        }
+    });
+    
+    // Store filtered events
+    eventLogFilteredEvents = filtered;
+    
+    // Reset to first page and display
+    eventLogCurrentPage = 1;
+    displayEventLogPage();
 }
 
 function displayEventLogPage() {
@@ -111,11 +186,14 @@ function displayEventLogPage() {
     
     container.innerHTML = '';
     
+    // Use filtered events for pagination
+    const eventsToPage = eventLogFilteredEvents.length > 0 ? eventLogFilteredEvents : eventLogAllEvents;
+    
     // Calculate pagination
     const startIndex = (eventLogCurrentPage - 1) * eventLogPageSize;
     const endIndex = startIndex + eventLogPageSize;
-    const pageEvents = eventLogAllEvents.slice(startIndex, endIndex);
-    const totalPages = Math.ceil(eventLogAllEvents.length / eventLogPageSize);
+    const pageEvents = eventsToPage.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(eventsToPage.length / eventLogPageSize);
     
     // Display events for current page
     pageEvents.forEach(event => {
@@ -154,7 +232,15 @@ function displayEventLogPage() {
     if (prevBtn) prevBtn.disabled = eventLogCurrentPage <= 1;
     if (nextBtn) nextBtn.disabled = eventLogCurrentPage >= totalPages;
     if (pageInfo) pageInfo.textContent = `Page ${eventLogCurrentPage} of ${totalPages}`;
-    if (logInfo) logInfo.textContent = `Showing ${startIndex + 1}-${Math.min(endIndex, eventLogAllEvents.length)} of ${eventLogAllEvents.length} events`;
+    if (logInfo) {
+        const totalFiltered = eventsToPage.length;
+        const totalAll = eventLogAllEvents.length;
+        if (totalFiltered < totalAll) {
+            logInfo.textContent = `Showing ${startIndex + 1}-${Math.min(endIndex, totalFiltered)} of ${totalFiltered} events (${totalAll} total)`;
+        } else {
+            logInfo.textContent = `Showing ${startIndex + 1}-${Math.min(endIndex, totalFiltered)} of ${totalFiltered} events`;
+        }
+    }
 }
 
 // Theme toggle
@@ -970,9 +1056,9 @@ async function loadEventLog() {
             refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
         }
         
-        const filter = document.getElementById('eventFilter').value;
-        // Load more events for pagination (load 1000 to have plenty for pagination)
-        const url = filter ? `/api/events.php?limit=1000&severity=${filter}` : '/api/events.php?limit=1000';
+        // Load all events (filtering/sorting is done client-side)
+        // Load 1000 events for pagination
+        const url = '/api/events.php?limit=1000';
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -1002,11 +1088,8 @@ function displayEventLog(events) {
     eventLogAllEvents = events;
     eventLogTotalEvents = events.length;
     
-    // Reset to first page when new events are loaded
-    eventLogCurrentPage = 1;
-    
-    // Display the current page
-    displayEventLogPage();
+    // Apply filters and display
+    applyEventLogFilters();
 }
 
 // Removed toggleLogPause - no longer needed without auto-refresh
@@ -1025,13 +1108,60 @@ async function loadNotificationQueue() {
     }
 }
 
+// Store original notifications for filtering/sorting
+let allNotifications = [];
+
 function displayNotificationQueue(notifications) {
+    // Store all notifications for filtering/sorting
+    allNotifications = notifications;
+    applyNotificationQueueFilters();
+}
+
+function applyNotificationQueueFilters() {
     const container = document.getElementById('notificationQueue');
-    if (notifications.length === 0) {
+    if (!container) return;
+    
+    if (allNotifications.length === 0) {
         container.innerHTML = '<p class="text-muted">No pending notifications</p>';
         return;
     }
     
+    // Get filter and sort values
+    const filterText = document.getElementById('notificationQueueFilter')?.value.toLowerCase() || '';
+    const sortValue = document.getElementById('notificationQueueSort')?.value || 'created_desc';
+    
+    // Filter notifications
+    let filtered = allNotifications.filter(n => {
+        if (!filterText) return true;
+        return (
+            n.recipient_email?.toLowerCase().includes(filterText) ||
+            n.original_to?.toLowerCase().includes(filterText) ||
+            n.recipient_domain?.toLowerCase().includes(filterText) ||
+            n.smtp_code?.toLowerCase().includes(filterText)
+        );
+    });
+    
+    // Sort notifications
+    filtered.sort((a, b) => {
+        switch(sortValue) {
+            case 'created_desc':
+                return new Date(b.created_at) - new Date(a.created_at);
+            case 'created_asc':
+                return new Date(a.created_at) - new Date(b.created_at);
+            case 'recipient_asc':
+                return (a.recipient_email || '').localeCompare(b.recipient_email || '');
+            case 'recipient_desc':
+                return (b.recipient_email || '').localeCompare(a.recipient_email || '');
+            case 'domain_asc':
+                return (a.recipient_domain || '').localeCompare(b.recipient_domain || '');
+            case 'domain_desc':
+                return (b.recipient_domain || '').localeCompare(a.recipient_domain || '');
+            default:
+                return 0;
+        }
+    });
+    
+    // Display filtered and sorted notifications
     container.innerHTML = `
         <div class="table-responsive">
             <table class="table table-sm">
@@ -1046,7 +1176,8 @@ function displayNotificationQueue(notifications) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${notifications.map(n => `
+                    ${filtered.length === 0 ? '<tr><td colspan="6" class="text-center text-muted">No notifications match the filter</td></tr>' : ''}
+                    ${filtered.map(n => `
                         <tr>
                             <td><input type="checkbox" class="notification-checkbox" value="${n.id}"></td>
                             <td>${n.recipient_email}</td>
@@ -1063,14 +1194,19 @@ function displayNotificationQueue(notifications) {
                 <button class="btn btn-outline-secondary btn-sm" onclick="deselectAllNotifications()">Deselect All</button>
                 <button class="btn btn-primary btn-sm" onclick="sendSelectedNotifications()">Send Selected</button>
             </div>
+            ${filterText ? `<small class="text-muted">Showing ${filtered.length} of ${allNotifications.length} notifications</small>` : ''}
         </div>
     `;
     
-    document.getElementById('selectAllNotifications').addEventListener('change', function() {
-        document.querySelectorAll('.notification-checkbox').forEach(cb => {
-            cb.checked = this.checked;
+    // Select all checkbox
+    const selectAll = document.getElementById('selectAllNotifications');
+    if (selectAll) {
+        selectAll.addEventListener('change', function(e) {
+            document.querySelectorAll('.notification-checkbox').forEach(cb => {
+                cb.checked = e.target.checked;
+            });
         });
-    });
+    }
 }
 
 function selectAllNotifications() {
