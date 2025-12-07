@@ -285,7 +285,12 @@ class MailboxMonitor {
         $this->eventLogger->log('debug', "Comparison result: messageCount == 0 is " . var_export($isZero, true), null, $this->mailbox['id']);
         error_log("MailboxMonitor: Comparison result: messageCount == 0 is " . var_export($isZero, true));
         
+        $this->eventLogger->log('debug', "RIGHT BEFORE if statement. isZero = " . var_export($isZero, true), null, $this->mailbox['id']);
+        error_log("MailboxMonitor: RIGHT BEFORE if statement. isZero = " . var_export($isZero, true));
+        
         if ($isZero) {
+            $this->eventLogger->log('debug', "ENTERED if block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: ENTERED if block");
             $this->eventLogger->log('debug', "INSIDE if (messageCount == 0) block - messageCount is 0, trying fallback methods", null, $this->mailbox['id']);
             error_log("MailboxMonitor: INSIDE if (messageCount == 0) block");
             // Clear any previous errors
@@ -403,6 +408,8 @@ class MailboxMonitor {
                 }
             }
         } else {
+            $this->eventLogger->log('debug', "ENTERED else block", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: ENTERED else block");
             $this->eventLogger->log('debug', "ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0", null, $this->mailbox['id']);
             error_log("MailboxMonitor: ELSE branch - SKIPPED if (messageCount == 0) block - messageCount is {$messageCount}, not 0");
         }
