@@ -1,18 +1,13 @@
 RewriteEngine On
 RewriteBase /
 
-# Route API requests
-RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^api/(.*)$ /api/$1 [L]
-
-# Route auth requests
-RewriteCond %{REQUEST_URI} ^/auth/
-RewriteRule ^auth/(.*)$ /auth/$1 [L]
-
-# Allow direct access to login.php, auth/, api/, and public/ files
-RewriteCond %{REQUEST_URI} ^/(login\.php|logout\.php|auth/|api/|public/) [OR]
+# Skip rewriting if the file or directory exists
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Skip rewriting for specific paths
+RewriteCond %{REQUEST_URI} ^/(auth|api|login\.php|logout\.php|public|init\.php) [NC]
 RewriteRule ^ - [L]
 
 # For all other requests, serve index.php (SPA)

@@ -36,6 +36,12 @@ if (isset($_SESSION['user_id'])) {
             <div class="card-body p-5">
                 <h2 class="card-title text-center mb-4">Bounce Monitor</h2>
                 <p class="text-center text-muted mb-4">Sign in with your account</p>
+                <?php if (isset($_GET['error'])): ?>
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <?php echo htmlspecialchars($_GET['error']); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endif; ?>
                 <div class="d-grid gap-2">
                     <a href="/auth/google" class="btn btn-danger">
                         <svg width="18" height="18" viewBox="0 0 18 18" class="me-2">
