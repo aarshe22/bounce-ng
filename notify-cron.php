@@ -120,16 +120,17 @@ $db = Database::getInstance();
 $eventLogger = new EventLogger();
 $exitCode = 0;
 
-// Log script start with detailed info
+// Log script start with detailed info - use 'info' level so it shows in event log
 cronLog('info', "=== CRON SCRIPT STARTED ===", $eventLogger, $userId);
-cronLog('debug', "CLI mode: " . ($isCli ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('debug', "Process only: " . ($processOnly ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('debug', "Send only: " . ($sendOnly ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('debug', "Web call: " . ($webCall ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('debug', "User ID: " . ($userId ?? 'NULL'), $eventLogger, $userId);
-cronLog('debug', "PHP version: " . PHP_VERSION, $eventLogger, $userId);
-cronLog('debug', "Working directory: " . getcwd(), $eventLogger, $userId);
-cronLog('debug', "Script path: " . __FILE__, $eventLogger, $userId);
+cronLog('info', "CLI mode: " . ($isCli ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('info', "Process only: " . ($processOnly ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('info', "Send only: " . ($sendOnly ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('info', "Web call: " . ($webCall ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('info', "User ID: " . ($userId ?? 'NULL'), $eventLogger, $userId);
+cronLog('info', "PHP version: " . PHP_VERSION, $eventLogger, $userId);
+cronLog('info', "Working directory: " . getcwd(), $eventLogger, $userId);
+cronLog('info', "Script path: " . __FILE__, $eventLogger, $userId);
+cronLog('info', "Process ID (PID): " . getmypid(), $eventLogger, $userId);
 
 try {
     // Get test mode settings

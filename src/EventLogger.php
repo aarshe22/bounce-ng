@@ -96,10 +96,23 @@ class EventLogger {
         
         $params[] = $limit;
         
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $results = $stmt->fetchAll();
+            
+            // Log if we're getting events (for debugging)
+            if (count($results) > 0) {
+                error_log("EventLogger: Retrieved " . count($results) . " events from database");
+            }
+            
+            return $results;
+        } catch (\Exception $e) {
+            error_log("EventLogger ERROR: Failed to get events - " . $e->getMessage());
+            error_log("EventLogger ERROR: SQL: {$sql}, Params: " . json_encode($params));
+            return [];
+        }
     }
 }
 

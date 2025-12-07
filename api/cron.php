@@ -117,6 +117,23 @@ try {
                 $successMsg = "Cron script started successfully with PID: {$pid}";
                 error_log($successMsg);
                 $eventLogger->log('info', "[DEBUG] api/cron.php: {$successMsg}", $userId);
+                
+                // Verify the process is actually running
+                sleep(1); // Wait a moment for process to start
+                $checkPid = trim(shell_exec("ps -p {$pid} -o pid= 2>/dev/null"));
+                if ($checkPid) {
+                    $eventLogger->log('info', "[DEBUG] api/cron.php: Verified process {$pid} is running", $userId);
+                } else {
+                    $eventLogger->log('warning', "[DEBUG] api/cron.php: Process {$pid} not found - may have exited immediately", $userId);
+                    // Check the log file for errors
+                    $logFile = $workingDir . '/notify-cron.log';
+                    if (file_exists($logFile)) {
+                        $lastLines = trim(shell_exec("tail -20 " . escapeshellarg($logFile) . " 2>/dev/null"));
+                        if ($lastLines) {
+                            $eventLogger->log('error', "[DEBUG] api/cron.php: Last log entries: " . substr($lastLines, 0, 500), $userId);
+                        }
+                    }
+                }
             }
         }
         

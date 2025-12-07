@@ -1513,14 +1513,21 @@ async function runCron() {
         console.log('[DEBUG] runCron: Parsed data:', data);
         
         if (data.success) {
-            addEventLogMessage('success', '[DEBUG] runCron: Cron script started successfully');
-            // Refresh data after a delay
+            addEventLogMessage('success', '[DEBUG] runCron: Cron script started successfully - checking execution...');
+            // Wait longer before refreshing to see if script actually runs
+            // Also refresh event log immediately to see backend debug messages
             setTimeout(() => {
-                console.log('[DEBUG] runCron: Refreshing dashboard, notifications, and event log');
+                console.log('[DEBUG] runCron: First refresh - checking for execution logs');
+                loadEventLog();
+            }, 1000);
+            
+            // Refresh again after longer delay to see results
+            setTimeout(() => {
+                console.log('[DEBUG] runCron: Second refresh - checking for results');
                 loadDashboard();
                 loadNotificationQueue();
                 loadEventLog();
-            }, 2000);
+            }, 5000);
         } else {
             addEventLogMessage('error', '[DEBUG] runCron: Error starting cron script: ' + (data.error || 'Unknown error'));
             alert('Error: ' + (data.error || 'Failed to start cron script'));
