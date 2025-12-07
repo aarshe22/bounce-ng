@@ -120,6 +120,17 @@ $db = Database::getInstance();
 $eventLogger = new EventLogger();
 $exitCode = 0;
 
+// Log script start with detailed info
+cronLog('info', "=== CRON SCRIPT STARTED ===", $eventLogger, $userId);
+cronLog('debug', "CLI mode: " . ($isCli ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('debug', "Process only: " . ($processOnly ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('debug', "Send only: " . ($sendOnly ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('debug', "Web call: " . ($webCall ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('debug', "User ID: " . ($userId ?? 'NULL'), $eventLogger, $userId);
+cronLog('debug', "PHP version: " . PHP_VERSION, $eventLogger, $userId);
+cronLog('debug', "Working directory: " . getcwd(), $eventLogger, $userId);
+cronLog('debug', "Script path: " . __FILE__, $eventLogger, $userId);
+
 try {
     // Get test mode settings
     $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");

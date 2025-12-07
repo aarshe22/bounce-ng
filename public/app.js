@@ -886,7 +886,8 @@ async function runProcessing() {
         // This makes the SPA more robust and prevents interference with background processing
         
         // Call notify-cron.php to process all mailboxes and send notifications
-        addEventLogMessage('info', 'Starting processing for all enabled mailboxes...');
+        addEventLogMessage('info', '[DEBUG] Starting processing for all enabled mailboxes...');
+        console.log('[DEBUG] runProcessing: Calling /api/mailboxes.php?action=process');
         
         // Fire-and-forget: send request, don't wait for response
         fetch('/api/mailboxes.php?action=process', {
@@ -894,11 +895,18 @@ async function runProcessing() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
         })
-        .then(() => {
-            addEventLogMessage('info', '✓ Processing started in background via cron script');
+        .then((response) => {
+            console.log('[DEBUG] runProcessing: Response status:', response.status);
+            addEventLogMessage('info', '[DEBUG] Processing request sent, HTTP status: ' + response.status);
+            return response.json();
         })
-        .catch(() => {
-            addEventLogMessage('info', '✓ Processing request sent (running in background)');
+        .then((data) => {
+            console.log('[DEBUG] runProcessing: Response data:', data);
+            addEventLogMessage('info', '[DEBUG] Processing response: ' + JSON.stringify(data));
+        })
+        .catch((error) => {
+            console.error('[DEBUG] runProcessing: Error:', error);
+            addEventLogMessage('error', '[DEBUG] Error sending processing request: ' + error.message);
         });
         
         addEventLogMessage('info', 'Processing request sent. Watch event log for real-time progress...');
@@ -1464,40 +1472,62 @@ async function runCron() {
     const originalText = runCronBtn ? runCronBtn.innerHTML : '';
     
     try {
+        console.log('[DEBUG] runCron: Starting cron execution');
+        addEventLogMessage('info', '[DEBUG] runCron: Starting cron script execution...');
+        
         // Disable button and show loading state
         if (runCronBtn) {
             runCronBtn.disabled = true;
             runCronBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running...';
         }
         
-        addEventLogMessage('info', 'Starting cron script execution...');
-        
+        console.log('[DEBUG] runCron: Calling /api/cron.php?action=run');
         const response = await fetch('/api/cron.php?action=run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
         
+        console.log('[DEBUG] runCron: Response status:', response.status, response.statusText);
+        addEventLogMessage('info', '[DEBUG] runCron: HTTP response status: ' + response.status);
+        
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorText = await response.text();
+            console.error('[DEBUG] runCron: Error response body:', errorText);
+            addEventLogMessage('error', '[DEBUG] runCron: HTTP error response: ' + errorText);
+            throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
         }
         
-        const data = await response.json();
+        const responseText = await response.text();
+        console.log('[DEBUG] runCron: Response body:', responseText);
+        addEventLogMessage('info', '[DEBUG] runCron: Response body: ' + responseText.substring(0, 200));
+        
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error('[DEBUG] runCron: JSON parse error:', e, 'Response text:', responseText);
+            addEventLogMessage('error', '[DEBUG] runCron: Failed to parse JSON: ' + e.message);
+            throw new Error('Invalid JSON response: ' + e.message);
+        }
+        
+        console.log('[DEBUG] runCron: Parsed data:', data);
         
         if (data.success) {
-            addEventLogMessage('success', 'Cron script started successfully');
+            addEventLogMessage('success', '[DEBUG] runCron: Cron script started successfully');
             // Refresh data after a delay
             setTimeout(() => {
+                console.log('[DEBUG] runCron: Refreshing dashboard, notifications, and event log');
                 loadDashboard();
                 loadNotificationQueue();
                 loadEventLog();
             }, 2000);
         } else {
-            addEventLogMessage('error', 'Error starting cron script: ' + (data.error || 'Unknown error'));
+            addEventLogMessage('error', '[DEBUG] runCron: Error starting cron script: ' + (data.error || 'Unknown error'));
             alert('Error: ' + (data.error || 'Failed to start cron script'));
         }
     } catch (error) {
-        console.error('Error running cron:', error);
-        addEventLogMessage('error', 'Error running cron script: ' + error.message);
+        console.error('[DEBUG] runCron: Exception caught:', error);
+        addEventLogMessage('error', '[DEBUG] runCron: Exception: ' + error.message);
         alert('Error running cron script: ' + error.message);
     } finally {
         // Re-enable button after a delay

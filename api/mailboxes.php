@@ -238,6 +238,11 @@ try {
             } elseif ($path === 'process') {
                 // Call notify-cron.php for processing via HTTP
                 // This delegates to the centralized cron script
+                $eventLogger = new \BounceNG\EventLogger();
+                $userId = $_SESSION['user_id'] ?? null;
+                
+                $eventLogger->log('info', '[DEBUG] api/mailboxes.php: Process action called', $userId);
+                
                 header('Content-Type: application/json');
                 header('Connection: close');
                 
@@ -263,13 +268,54 @@ try {
                 // Execute notify-cron.php in CLI mode (same as cron)
                 $cronScript = __DIR__ . '/../notify-cron.php';
                 $phpBinary = PHP_BINARY;
-                $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' 2>&1';
                 
-                // Execute in background (non-blocking)
-                if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                    pclose(popen("start /B " . $command, "r"));
+                $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Cron script: {$cronScript}", $userId);
+                $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: PHP binary: {$phpBinary}", $userId);
+                
+                if (!file_exists($cronScript)) {
+                    $errorMsg = "Cron script not found: {$cronScript}";
+                    error_log($errorMsg);
+                    $eventLogger->log('error', "[DEBUG] api/mailboxes.php: {$errorMsg}", $userId);
                 } else {
-                    exec($command . ' > /dev/null 2>&1 &');
+                    $cronScript = realpath($cronScript);
+                    $workingDir = dirname($cronScript);
+                    $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' --process-only 2>&1';
+                    
+                    $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Command: {$command}", $userId);
+                    $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Working directory: {$workingDir}", $userId);
+                    
+                    // Execute in background (non-blocking)
+                    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                        $handle = popen("start /B " . $command, "r");
+                        if ($handle === false) {
+                            $eventLogger->log('error', "[DEBUG] api/mailboxes.php: Failed to start cron on Windows", $userId);
+                        } else {
+                            pclose($handle);
+                            $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started on Windows", $userId);
+                        }
+                    } else {
+                        $nohupPath = trim(shell_exec('which nohup 2>/dev/null') ?: 'nohup');
+                        $fullCommand = "cd " . escapeshellarg($workingDir) . " && " . escapeshellarg($nohupPath) . " " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 & echo $!";
+                        
+                        $pid = trim(shell_exec($fullCommand));
+                        $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Shell exec returned PID: '{$pid}'", $userId);
+                        
+                        if (empty($pid) || !is_numeric($pid)) {
+                            $fallbackCommand = "cd " . escapeshellarg($workingDir) . " && " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 &";
+                            $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Trying fallback: {$fallbackCommand}", $userId);
+                            exec($fallbackCommand, $output, $returnVar);
+                            
+                            if ($returnVar !== 0) {
+                                $errorMsg = "Failed to execute. Return code: {$returnVar}, Output: " . implode("\n", $output);
+                                error_log($errorMsg);
+                                $eventLogger->log('error', "[DEBUG] api/mailboxes.php: {$errorMsg}", $userId);
+                            } else {
+                                $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started (fallback method)", $userId);
+                            }
+                        } else {
+                            $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started with PID: {$pid}", $userId);
+                        }
+                    }
                 }
             } else {
                 http_response_code(400);
