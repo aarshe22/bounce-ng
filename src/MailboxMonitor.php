@@ -138,6 +138,22 @@ class MailboxMonitor {
         $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $actualMailboxPath = null;
         
+        // CRITICAL: Get the actual connection string that imap_list uses
+        // imap_list returns paths that include the full connection string with authentication
+        // We need to extract the base connection string from the first mailbox path
+        $baseConnectionString = $connectionString;
+        if ($allMailboxes && count($allMailboxes) > 0) {
+            // Extract the connection string part from the first mailbox path
+            // Format: {server:port/imap/user="user"}FOLDER
+            $firstMailbox = $allMailboxes[0];
+            // Find the closing brace and extract everything up to and including it
+            $bracePos = strrpos($firstMailbox, '}');
+            if ($bracePos !== false) {
+                $baseConnectionString = substr($firstMailbox, 0, $bracePos + 1);
+                $this->eventLogger->log('debug', "Extracted base connection string from imap_list: '{$baseConnectionString}'", null, $this->mailbox['id']);
+            }
+        }
+        
         // Try multiple folder name variations to handle case sensitivity, encoding, and custom folders
         $folderVariations = [
             $inbox,
@@ -158,7 +174,8 @@ class MailboxMonitor {
         // Find the actual mailbox path that matches our folder name
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
-                $folder = str_replace($connectionString, "", $mb);
+                // Use the extracted base connection string to get the folder name
+                $folder = str_replace($baseConnectionString, "", $mb);
                 $folderDecoded = \imap_utf7_decode($folder);
                 
                 // Try exact match first
@@ -184,7 +201,7 @@ class MailboxMonitor {
             $availableFolders = [];
             if ($allMailboxes) {
                 foreach ($allMailboxes as $mb) {
-                    $folder = str_replace($connectionString, "", $mb);
+                    $folder = str_replace($baseConnectionString, "", $mb);
                     $folder = \imap_utf7_decode($folder);
                     $availableFolders[] = $folder;
                 }
@@ -835,7 +852,7 @@ class MailboxMonitor {
         
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
-                $folderName = str_replace($connectionString, "", $mb);
+                $folderName = str_replace($baseConnectionString, "", $mb);
                 $folderDecoded = \imap_utf7_decode($folderName);
                 
                 // Check against all variations
@@ -854,7 +871,7 @@ class MailboxMonitor {
             $availableFolders = [];
             if ($allMailboxes) {
                 foreach ($allMailboxes as $mb) {
-                    $folderName = str_replace($connectionString, "", $mb);
+                    $folderName = str_replace($baseConnectionString, "", $mb);
                     $folderDecoded = \imap_utf7_decode($folderName);
                     $availableFolders[] = $folderDecoded;
                 }
@@ -862,13 +879,13 @@ class MailboxMonitor {
             $foldersList = implode(', ', $availableFolders);
             $this->eventLogger->log('warning', "Destination folder '{$folder}' not found. Available folders: {$foldersList}", null, $this->mailbox['id']);
             
-            // Last resort: try constructed path
-            $destMailboxPath = $connectionString . $folder;
+            // Last resort: try constructed path using base connection string
+            $destMailboxPath = $baseConnectionString . $folder;
             $this->eventLogger->log('debug', "Using constructed path: '{$destMailboxPath}'", null, $this->mailbox['id']);
         }
         
         // Extract just the folder name from the full path (imap_mail_copy may need just the folder name)
-        $folderNameOnly = str_replace($connectionString, "", $destMailboxPath);
+        $folderNameOnly = str_replace($baseConnectionString, "", $destMailboxPath);
         
         // Try multiple approaches: full path, folder name only, and encoded folder name
         $pathsToTry = [
