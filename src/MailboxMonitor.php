@@ -37,14 +37,14 @@ class MailboxMonitor {
         }
         $connectionString .= "}";
 
-        $this->imapConnection = @imap_open(
+        $this->imapConnection = @\imap_open(
             $connectionString,
             $this->mailbox['imap_username'],
             $this->mailbox['imap_password']
         );
 
         if (!$this->imapConnection) {
-            $error = imap_last_error();
+            $error = \imap_last_error();
             $this->eventLogger->log('error', "Failed to connect to mailbox: {$error}", null, $this->mailbox['id']);
             throw new Exception("IMAP connection failed: {$error}");
         }
@@ -69,13 +69,13 @@ class MailboxMonitor {
         }
         $connectionString .= "}";
         
-        $mailboxes = @imap_list($this->imapConnection, $connectionString, "*");
+        $mailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         
         if ($mailboxes) {
             foreach ($mailboxes as $mailbox) {
                 // Extract folder name from full mailbox path
                 $folder = str_replace($connectionString, "", $mailbox);
-                $folder = imap_utf7_decode($folder);
+                $folder = \imap_utf7_decode($folder);
                 $folders[] = $folder;
             }
         }
@@ -102,25 +102,25 @@ class MailboxMonitor {
         
         // Close existing connection if any
         if ($this->imapConnection) {
-            @imap_close($this->imapConnection);
+            @\imap_close($this->imapConnection);
             $this->imapConnection = null;
         }
         
         // First connect to server root
-        $this->imapConnection = @imap_open(
+        $this->imapConnection = @\imap_open(
             $connectionString,
             $this->mailbox['imap_username'],
             $this->mailbox['imap_password']
         );
         
         if (!$this->imapConnection) {
-            $error = imap_last_error();
+            $error = \imap_last_error();
             $this->eventLogger->log('error', "Failed to connect to IMAP server: {$error}", null, $this->mailbox['id']);
             throw new Exception("IMAP connection failed: {$error}");
         }
         
         // Get the actual mailbox path from imap_list (more reliable than constructing it)
-        $allMailboxes = @imap_list($this->imapConnection, $connectionString, "*");
+        $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $actualMailboxPath = null;
         $folderVariations = [
             $inbox,
@@ -133,7 +133,7 @@ class MailboxMonitor {
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
                 $folder = str_replace($connectionString, "", $mb);
-                $folderDecoded = imap_utf7_decode($folder);
+                $folderDecoded = \imap_utf7_decode($folder);
                 foreach ($folderVariations as $var) {
                     if (strcasecmp($folderDecoded, $var) === 0 || $folderDecoded === $var) {
                         $actualMailboxPath = $mb; // Use the full mailbox path from imap_list
@@ -150,7 +150,7 @@ class MailboxMonitor {
             if ($allMailboxes) {
                 foreach ($allMailboxes as $mb) {
                     $folder = str_replace($connectionString, "", $mb);
-                    $folder = imap_utf7_decode($folder);
+                    $folder = \imap_utf7_decode($folder);
                     $availableFolders[] = $folder;
                 }
             }
@@ -163,7 +163,7 @@ class MailboxMonitor {
         
         // Get message count BEFORE selecting (using imap_status on the mailbox path)
         // This works even if the mailbox isn't selected
-        $status = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
+        $status = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
         $messageCount = 0;
         $unseenCount = 0;
         
@@ -172,7 +172,7 @@ class MailboxMonitor {
             $unseenCount = $status->unseen ?? 0;
             $this->eventLogger->log('info', "Message count from imap_status (before selection): {$messageCount} total, {$unseenCount} unseen", null, $this->mailbox['id']);
         } else {
-            $error = imap_last_error();
+            $error = \imap_last_error();
             $this->eventLogger->log('warning', "imap_status failed before selection: {$error}", null, $this->mailbox['id']);
         }
         
@@ -184,9 +184,9 @@ class MailboxMonitor {
         }
         
         // Check if connection is still alive
-        $pingResult = @imap_ping($this->imapConnection);
+        $pingResult = @\imap_ping($this->imapConnection);
         if (!$pingResult) {
-            $error = imap_last_error();
+            $error = \imap_last_error();
             $this->eventLogger->log('error', "IMAP connection is not alive before selection: {$error}", null, $this->mailbox['id']);
             throw new Exception("IMAP connection is not alive: {$error}");
         }
@@ -196,8 +196,8 @@ class MailboxMonitor {
         $error = null;
         
         try {
-            $result = @imap_select($this->imapConnection, $actualMailboxPath);
-            $error = imap_last_error();
+            $result = @\imap_select($this->imapConnection, $actualMailboxPath);
+            $error = \imap_last_error();
             $this->eventLogger->log('info', "imap_select result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
         } catch (Exception $e) {
             $error = $e->getMessage();
@@ -210,8 +210,8 @@ class MailboxMonitor {
             }
             // Fallback to imap_reopen
             try {
-                $result = @imap_reopen($this->imapConnection, $actualMailboxPath);
-                $error = imap_last_error();
+                $result = @\imap_reopen($this->imapConnection, $actualMailboxPath);
+                $error = \imap_last_error();
                 $this->eventLogger->log('info', "imap_reopen result: " . ($result ? 'true' : 'false') . ($error ? " (error: {$error})" : ''), null, $this->mailbox['id']);
             } catch (Exception $e) {
                 $error = $e->getMessage();
@@ -220,7 +220,7 @@ class MailboxMonitor {
         }
         
         if (!$result) {
-            $finalError = $error ?: imap_last_error() ?: 'Unknown error';
+            $finalError = $error ?: \imap_last_error() ?: 'Unknown error';
             $this->eventLogger->log('error', "Failed to select folder '{$actualMailboxPath}': {$finalError}", null, $this->mailbox['id']);
             throw new Exception("Failed to select folder: {$finalError}");
         }
@@ -228,7 +228,7 @@ class MailboxMonitor {
         $this->eventLogger->log('info', "Successfully selected folder: '{$actualMailboxPath}'", null, $this->mailbox['id']);
         
         // Now get message count from the selected mailbox - try multiple methods
-        $numMsgCount = @imap_num_msg($this->imapConnection);
+        $numMsgCount = @\imap_num_msg($this->imapConnection);
         $this->eventLogger->log('info', "Message count from imap_num_msg (after selection): {$numMsgCount}", null, $this->mailbox['id']);
         
         // Use the higher count (status might be more accurate)
@@ -237,7 +237,7 @@ class MailboxMonitor {
         }
         
         // Re-check status after selection
-        $statusAfter = @imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
+        $statusAfter = @\imap_status($this->imapConnection, $actualMailboxPath, SA_MESSAGES | SA_UNSEEN);
         if ($statusAfter) {
             $statusCount = $statusAfter->messages ?? 0;
             $unseenCount = $statusAfter->unseen ?? 0;
@@ -250,12 +250,12 @@ class MailboxMonitor {
         // If still 0, try imap_search as backup - this is the most reliable method
         if ($messageCount == 0) {
             // Clear any previous errors
-            imap_errors();
+            \imap_errors();
             
             // Try different search criteria - imap_search is often more reliable
             $searchOptions = ['ALL', '1:*'];
             foreach ($searchOptions as $criteria) {
-                $searchResult = @imap_search($this->imapConnection, $criteria);
+                $searchResult = @\imap_search($this->imapConnection, $criteria);
                 if ($searchResult && is_array($searchResult) && count($searchResult) > 0) {
                     $messageCount = count($searchResult);
                     $this->eventLogger->log('info', "Message count from imap_search('{$criteria}'): {$messageCount}", null, $this->mailbox['id']);
@@ -265,7 +265,7 @@ class MailboxMonitor {
             
             // Also try getting UIDs which might work even if message count doesn't
             if ($messageCount == 0) {
-                $uids = @imap_search($this->imapConnection, 'ALL', SE_UID);
+                $uids = @\imap_search($this->imapConnection, 'ALL', SE_UID);
                 if ($uids && is_array($uids) && count($uids) > 0) {
                     $uidCount = count($uids);
                     $messageCount = $uidCount;
@@ -275,13 +275,13 @@ class MailboxMonitor {
             
             // Last resort: try to fetch message 1 to see if it exists
             if ($messageCount == 0) {
-                $testHeader = @imap_fetchheader($this->imapConnection, 1);
+                $testHeader = @\imap_fetchheader($this->imapConnection, 1);
                 if ($testHeader) {
                     // If we can fetch header, there's at least one message
                     // Try to count by attempting to fetch headers sequentially
                     $testCount = 0;
                     for ($i = 1; $i <= 1000; $i++) {
-                        $testHdr = @imap_fetchheader($this->imapConnection, $i);
+                        $testHdr = @\imap_fetchheader($this->imapConnection, $i);
                         if (!$testHdr) {
                             break;
                         }
@@ -304,9 +304,9 @@ class MailboxMonitor {
             if ($allMailboxes) {
                 foreach ($allMailboxes as $mb) {
                     $folder = str_replace($connectionString, "", $mb);
-                    $folder = imap_utf7_decode($folder);
+                    $folder = \imap_utf7_decode($folder);
                     // Get message count for this folder using status
-                    $folderStatus = @imap_status($this->imapConnection, $mb, SA_MESSAGES);
+                    $folderStatus = @\imap_status($this->imapConnection, $mb, SA_MESSAGES);
                     $folderMsgCount = $folderStatus ? ($folderStatus->messages ?? 0) : 0;
                     if ($folderMsgCount > 0 || $folder === $inbox) {
                         $availableFolders[] = "{$folder} ({$folderMsgCount} msgs)";
@@ -336,7 +336,7 @@ class MailboxMonitor {
         }
 
         // Double-check message count right before processing
-        $verifyCount = @imap_num_msg($this->imapConnection);
+        $verifyCount = @\imap_num_msg($this->imapConnection);
         if ($verifyCount != $messageCount && $verifyCount > 0) {
             $this->eventLogger->log('info', "Message count changed: was {$messageCount}, now {$verifyCount}. Using current count.", null, $this->mailbox['id']);
             $messageCount = $verifyCount;
@@ -352,14 +352,14 @@ class MailboxMonitor {
             $this->eventLogger->log('debug', "Processing message {$i} of {$messageCount}", null, $this->mailbox['id']);
             try {
                 // Fetch message using message number (not UID) - processes all messages
-                $header = @imap_headerinfo($this->imapConnection, $i);
+                $header = @\imap_headerinfo($this->imapConnection, $i);
                 if (!$header) {
                     $this->eventLogger->log('warning', "Could not fetch header for message {$i}, skipping", null, $this->mailbox['id']);
                     continue;
                 }
                 
-                $body = @imap_body($this->imapConnection, $i);
-                $rawHeader = @imap_fetchheader($this->imapConnection, $i);
+                $body = @\imap_body($this->imapConnection, $i);
+                $rawHeader = @\imap_fetchheader($this->imapConnection, $i);
                 if (!$rawHeader) {
                     $this->eventLogger->log('warning', "Could not fetch raw header for message {$i}, skipping", null, $this->mailbox['id']);
                     continue;
@@ -492,13 +492,13 @@ class MailboxMonitor {
         $connectionString .= "}";
         
         // Get the actual mailbox path for the destination folder
-        $allMailboxes = @imap_list($this->imapConnection, $connectionString, "*");
+        $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
         $destMailboxPath = null;
         
         if ($allMailboxes) {
             foreach ($allMailboxes as $mb) {
                 $folderName = str_replace($connectionString, "", $mb);
-                $folderDecoded = imap_utf7_decode($folderName);
+                $folderDecoded = \imap_utf7_decode($folderName);
                 if (strcasecmp($folderDecoded, $folder) === 0 || $folderDecoded === $folder) {
                     $destMailboxPath = $mb;
                     break;
@@ -512,15 +512,15 @@ class MailboxMonitor {
         }
         
         // Copy message to destination folder
-        $result = @imap_mail_copy($this->imapConnection, $messageNum, $destMailboxPath);
+        $result = @\imap_mail_copy($this->imapConnection, $messageNum, $destMailboxPath);
         
         if ($result) {
             // Delete from source
-            @imap_delete($this->imapConnection, $messageNum);
+            @\imap_delete($this->imapConnection, $messageNum);
             // Expunge
-            @imap_expunge($this->imapConnection);
+            @\imap_expunge($this->imapConnection);
         } else {
-            $error = imap_last_error();
+            $error = \imap_last_error();
             $this->eventLogger->log('warning', "Failed to move message to folder '{$folder}': {$error}", null, $this->mailbox['id']);
         }
     }
@@ -529,8 +529,8 @@ class MailboxMonitor {
         if ($this->imapConnection) {
             try {
                 // Check if connection is still valid before closing
-                @imap_ping($this->imapConnection);
-                @imap_close($this->imapConnection);
+                @\imap_ping($this->imapConnection);
+                @\imap_close($this->imapConnection);
             } catch (ValueError $e) {
                 // Connection already closed, ignore
             } catch (Exception $e) {
