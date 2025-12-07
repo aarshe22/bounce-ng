@@ -493,66 +493,139 @@ async function deleteMailbox(id) {
 }
 
 async function runProcessing() {
+    const runBtn = document.querySelector('button[onclick="runProcessing()"]');
+    const originalText = runBtn ? runBtn.innerHTML : '';
+    
     try {
-        const response = await fetch('/api/mailboxes.php?action=list');
-        const data = await response.json();
-        if (data.success && data.data.length > 0) {
-            const enabledMailboxes = data.data.filter(m => m.is_enabled == 1);
-            if (enabledMailboxes.length === 0) {
-                alert('No enabled mailboxes to process');
-                return;
-            }
-            
-            // Increase polling frequency during processing
-            const originalInterval = eventPollInterval;
-            clearInterval(eventPollInterval);
-            eventPollInterval = setInterval(() => {
-                if (!logPaused) {
-                    loadEventLog();
-                }
-            }, 500); // Poll every 500ms during processing
-            
-            // Process mailboxes
-            for (const mailbox of enabledMailboxes) {
-                try {
-                    const processResponse = await fetch('/api/mailboxes.php?action=process', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mailbox_id: mailbox.id })
-                    });
-                    const processData = await processResponse.json();
-                    if (processData.success) {
-                        console.log(`Processed mailbox ${mailbox.name}:`, processData.data);
-                    }
-                } catch (error) {
-                    console.error(`Error processing mailbox ${mailbox.name}:`, error);
-                }
-            }
-            
-            // Restore original polling interval after processing
-            clearInterval(eventPollInterval);
-            eventPollInterval = setInterval(() => {
-                if (!logPaused) {
-                    loadEventLog();
-                }
-            }, 2000);
-            
-            loadMailboxes();
-            loadDashboard();
-            loadEventLog();
-        } else {
-            alert('No mailboxes configured');
+        // Disable button and show loading state
+        if (runBtn) {
+            runBtn.disabled = true;
+            runBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
         }
+        
+        // Show user feedback
+        addEventLogMessage('info', 'Starting mailbox processing...');
+        
+        const response = await fetch('/api/mailboxes.php?action=list');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to get mailbox list');
+        }
+        
+        if (data.data.length === 0) {
+            alert('No mailboxes configured');
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = originalText;
+            }
+            return;
+        }
+        
+        const enabledMailboxes = data.data.filter(m => m.is_enabled == 1);
+        if (enabledMailboxes.length === 0) {
+            alert('No enabled mailboxes to process');
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = originalText;
+            }
+            return;
+        }
+        
+        // Increase polling frequency during processing
+        const originalInterval = eventPollInterval;
+        clearInterval(eventPollInterval);
+        eventPollInterval = setInterval(() => {
+            if (!logPaused) {
+                loadEventLog();
+            }
+        }, 500); // Poll every 500ms during processing
+        
+        // Process mailboxes sequentially
+        for (const mailbox of enabledMailboxes) {
+            try {
+                addEventLogMessage('info', `Processing mailbox: ${mailbox.name}...`);
+                
+                const processResponse = await fetch('/api/mailboxes.php?action=process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mailbox_id: mailbox.id })
+                });
+                
+                if (!processResponse.ok) {
+                    throw new Error(`HTTP error! status: ${processResponse.status}`);
+                }
+                
+                const processData = await processResponse.json();
+                if (processData.success) {
+                    const result = processData.data || {};
+                    addEventLogMessage('success', `Completed ${mailbox.name}: ${result.processed || 0} processed, ${result.skipped || 0} skipped, ${result.problems || 0} problems`);
+                } else {
+                    addEventLogMessage('error', `Error processing ${mailbox.name}: ${processData.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error(`Error processing mailbox ${mailbox.name}:`, error);
+                addEventLogMessage('error', `Error processing ${mailbox.name}: ${error.message}`);
+            }
+        }
+        
+        // Restore original polling interval after processing
+        clearInterval(eventPollInterval);
+        eventPollInterval = setInterval(() => {
+            if (!logPaused) {
+                loadEventLog();
+            }
+        }, 1000);
+        
+        // Refresh data
+        await Promise.all([
+            loadMailboxes(),
+            loadDashboard(),
+            loadEventLog(),
+            loadNotificationQueue()
+        ]);
+        
+        addEventLogMessage('success', 'Processing complete!');
+        
     } catch (error) {
+        console.error('Error running processing:', error);
         alert('Error running processing: ' + error.message);
-        // Restore original polling interval on error
+        addEventLogMessage('error', 'Processing failed: ' + error.message);
+    } finally {
+        // Re-enable button
+        if (runBtn) {
+            runBtn.disabled = false;
+            runBtn.innerHTML = originalText;
+        }
+        
+        // Restore polling interval on error
         if (eventPollInterval) {
             clearInterval(eventPollInterval);
             eventPollInterval = setInterval(() => {
                 if (!logPaused) {
                     loadEventLog();
                 }
-            }, 2000);
+            }, 1000);
+        }
+    }
+}
+
+// Helper function to add messages to event log immediately (before server sync)
+function addEventLogMessage(severity, message) {
+    const container = document.getElementById('eventLog');
+    if (container) {
+        const item = document.createElement('div');
+        item.className = `event ${severity}`;
+        const time = new Date().toLocaleString();
+        item.innerHTML = `<span class="text-muted">[${time}]</span> <strong>${severity.toUpperCase()}</strong>: ${message}`;
+        container.insertBefore(item, container.firstChild);
+        
+        // Keep only last 100 items
+        while (container.children.length > 100) {
+            container.removeChild(container.lastChild);
         }
     }
 }

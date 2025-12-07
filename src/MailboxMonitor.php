@@ -388,8 +388,8 @@ class MailboxMonitor {
         // Process messages in reverse order to avoid number shifting issues
         $uids = array_reverse($uids);
         
-        foreach ($uids as $uid) {
-            $this->eventLogger->log('debug', "Processing message UID {$uid}", null, $this->mailbox['id']);
+        foreach ($uids as $index => $uid) {
+            $this->eventLogger->log('debug', "Processing message " . ($index + 1) . " of " . count($uids) . " (UID: {$uid})", null, $this->mailbox['id']);
             try {
                 // Fetch message using UID to avoid number shifting issues
                 $header = @\imap_headerinfo($this->imapConnection, $uid, FT_UID);
