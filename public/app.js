@@ -1157,11 +1157,11 @@ function displayDashboard(data) {
     domainsContainer.innerHTML = '';
     
     if (data.domains.length === 0) {
-        domainsContainer.innerHTML = '<p class="text-white-50 mb-0">No domains found</p>';
+        domainsContainer.innerHTML = '<p class="text-muted mb-0">No domains found</p>';
     } else {
         data.domains.forEach((domain, index) => {
             const item = document.createElement('div');
-            item.className = 'mb-2 rounded bg-white bg-opacity-10 domain-item';
+            item.className = 'mb-2 rounded domain-item p-2';
             item.setAttribute('data-domain-index', index);
             
             // Convert trust score from 0-100 to 1-10 scale for display
@@ -1215,28 +1215,28 @@ function displayDashboard(data) {
             let detailsHtml = '';
             if (recentBounces.length > 0 || smtpCodes.length > 0 || bounceTimeline.length > 0) {
                 detailsHtml = '<div class="domain-details-list" style="display: none;">';
-                detailsHtml += '<div class="p-2 pt-0 mt-2 border-top border-white border-opacity-25">';
+                detailsHtml += '<div class="p-2 pt-0 mt-2 border-top">';
                 
                 // Recent bounces section
                 if (recentBounces.length > 0) {
                     detailsHtml += '<div class="mb-3">';
-                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-clock-history"></i> Recent Bounces:</small>';
+                    detailsHtml += '<small class="d-block mb-2 fw-bold"><i class="bi bi-clock-history"></i> Recent Bounces:</small>';
                     recentBounces.forEach(bounce => {
                         const bounceDate = new Date(bounce.bounce_date);
                         const statusColor = bounce.deliverability_status === 'permanent_failure' ? 'danger' : 
                                           bounce.deliverability_status === 'temporary_failure' ? 'warning' : 'secondary';
                         detailsHtml += `
-                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                            <div class="small mb-1 p-2 rounded notification-item">
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div class="flex-grow-1">
-                                        <span class="text-dark fw-bold">${bounce.original_to || 'N/A'}</span>
-                                        ${bounce.original_subject ? `<div class="text-dark text-opacity-75">${bounce.original_subject}</div>` : ''}
+                                        <span class="fw-bold">${bounce.original_to || 'N/A'}</span>
+                                        ${bounce.original_subject ? `<div class="text-muted">${bounce.original_subject}</div>` : ''}
                                         ${bounce.smtp_code ? `<span class="badge bg-${statusColor} ms-2">${bounce.smtp_code}</span>` : ''}
                                     </div>
-                                    <small class="text-dark">${bounceDate.toLocaleDateString()} ${bounceDate.toLocaleTimeString()}</small>
+                                    <small class="text-muted">${bounceDate.toLocaleDateString()} ${bounceDate.toLocaleTimeString()}</small>
                                 </div>
-                                ${bounce.smtp_reason ? `<div class="text-dark text-opacity-75 mt-1"><small>${bounce.smtp_reason}</small></div>` : ''}
-                                ${bounce.smtp_description ? `<div class="text-dark text-opacity-75"><small><i>${bounce.smtp_description}</i></small></div>` : ''}
+                                ${bounce.smtp_reason ? `<div class="text-muted mt-1"><small>${bounce.smtp_reason}</small></div>` : ''}
+                                ${bounce.smtp_description ? `<div class="text-muted"><small><i>${bounce.smtp_description}</i></small></div>` : ''}
                             </div>
                         `;
                     });
@@ -1246,16 +1246,16 @@ function displayDashboard(data) {
                 // SMTP codes breakdown
                 if (smtpCodes.length > 0) {
                     detailsHtml += '<div class="mb-3">';
-                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-list-ul"></i> SMTP Codes:</small>';
+                    detailsHtml += '<small class="d-block mb-2 fw-bold"><i class="bi bi-list-ul"></i> SMTP Codes:</small>';
                     smtpCodes.forEach(code => {
                         const codeColor = code.smtp_code >= 550 && code.smtp_code <= 559 ? 'danger' : 
                                        code.smtp_code >= 450 && code.smtp_code <= 459 ? 'warning' : 'info';
                         detailsHtml += `
-                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                            <div class="small mb-1 p-2 rounded notification-item">
                                 <span class="badge bg-${codeColor} me-2">${code.smtp_code}</span>
-                                <span class="text-dark fw-bold">${code.count} occurrence${code.count !== 1 ? 's' : ''}</span>
-                                ${code.description ? `<div class="text-dark text-opacity-75 mt-1">${code.description}</div>` : ''}
-                                ${code.recommendation ? `<div class="text-dark text-opacity-75"><small><i class="bi bi-lightbulb"></i> ${code.recommendation}</small></div>` : ''}
+                                <span class="fw-bold">${code.count} occurrence${code.count !== 1 ? 's' : ''}</span>
+                                ${code.description ? `<div class="text-muted mt-1">${code.description}</div>` : ''}
+                                ${code.recommendation ? `<div class="text-muted"><small><i class="bi bi-lightbulb"></i> ${code.recommendation}</small></div>` : ''}
                             </div>
                         `;
                     });
@@ -1265,16 +1265,16 @@ function displayDashboard(data) {
                 // Bounce timeline (last 30 days)
                 if (bounceTimeline.length > 0) {
                     detailsHtml += '<div class="mb-2">';
-                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-graph-up"></i> Bounce Timeline (Last 30 Days):</small>';
+                    detailsHtml += '<small class="d-block mb-2 fw-bold"><i class="bi bi-graph-up"></i> Bounce Timeline (Last 30 Days):</small>';
                     bounceTimeline.slice(0, 10).forEach(day => {
                         const dayDate = new Date(day.bounce_day);
                         detailsHtml += `
-                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                            <div class="small mb-1 p-2 rounded notification-item">
                                 <div class="d-flex justify-content-between">
-                                    <span class="text-dark fw-bold">${dayDate.toLocaleDateString()}</span>
-                                    <span class="text-dark">${day.bounce_count} bounce${day.bounce_count !== 1 ? 's' : ''}</span>
+                                    <span class="fw-bold">${dayDate.toLocaleDateString()}</span>
+                                    <span>${day.bounce_count} bounce${day.bounce_count !== 1 ? 's' : ''}</span>
                                 </div>
-                                <div class="text-dark text-opacity-75">
+                                <div class="text-muted">
                                     ${day.permanent_count > 0 ? `<span class="text-danger">${day.permanent_count} permanent</span>` : ''}
                                     ${day.temporary_count > 0 ? `<span class="text-warning ms-2">${day.temporary_count} temporary</span>` : ''}
                                 </div>
@@ -1282,7 +1282,7 @@ function displayDashboard(data) {
                         `;
                     });
                     if (bounceTimeline.length > 10) {
-                        detailsHtml += `<small class="text-dark text-opacity-75">... and ${bounceTimeline.length - 10} more days</small>`;
+                        detailsHtml += `<small class="text-muted">... and ${bounceTimeline.length - 10} more days</small>`;
                     }
                     detailsHtml += '</div>';
                 }
@@ -1295,12 +1295,12 @@ function displayDashboard(data) {
                     const allEmails = [...new Set([...toAddresses, ...ccAddresses])];
                     
                     if (allEmails.length > 0 || emailPairs.length > 0) {
-                        detailsHtml += '<div class="mt-2 p-2 bg-danger bg-opacity-25 rounded">';
+                        detailsHtml += '<div class="mt-2 p-2 rounded" style="background-color: rgba(220, 53, 69, 0.1); border: 1px solid rgba(220, 53, 69, 0.3);">';
                         detailsHtml += '<small class="fw-bold text-warning d-block mb-1"><i class="bi bi-exclamation-triangle"></i> Associated Email Addresses:</small>';
                         
                         if (emailPairs.length > 0) {
                             emailPairs.forEach(pair => {
-                                detailsHtml += `<div class="small text-dark mb-1">`;
+                                detailsHtml += `<div class="small mb-1">`;
                                 detailsHtml += `<span class="fw-bold">TO:</span> ${pair.to}`;
                                 if (pair.cc) {
                                     detailsHtml += ` <span class="fw-bold ms-2">CC:</span> ${pair.cc}`;
@@ -1309,10 +1309,10 @@ function displayDashboard(data) {
                             });
                         } else {
                             if (toAddresses.length > 0) {
-                                detailsHtml += `<div class="small mb-1"><span class="fw-bold text-dark">TO addresses:</span> <span class="text-dark">${toAddresses.join(', ')}</span></div>`;
+                                detailsHtml += `<div class="small mb-1"><span class="fw-bold">TO addresses:</span> ${toAddresses.join(', ')}</div>`;
                             }
                             if (ccAddresses.length > 0) {
-                                detailsHtml += `<div class="small mb-1"><span class="fw-bold text-dark">CC addresses:</span> <span class="text-dark">${ccAddresses.join(', ')}</span></div>`;
+                                detailsHtml += `<div class="small mb-1"><span class="fw-bold">CC addresses:</span> ${ccAddresses.join(', ')}</div>`;
                             }
                         }
                         detailsHtml += '</div>';
@@ -1323,15 +1323,15 @@ function displayDashboard(data) {
             }
             
             item.innerHTML = `
-                <div class="p-2 domain-header" style="cursor: pointer;">
+                <div class="domain-header" style="cursor: pointer;">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <div class="flex-grow-1">
-                            <div class="fw-bold text-white ${isInvalid ? 'text-danger' : ''}">
+                            <div class="fw-bold ${isInvalid ? 'text-danger' : ''}">
                                 ${domain.domain}
                                 ${isInvalid ? '<i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i>' : ''}
                                 ${detailsHtml ? '<i class="bi bi-chevron-down ms-2 domain-chevron" style="font-size: 0.75rem; transition: transform 0.3s;"></i>' : ''}
                             </div>
-                            <small class="text-white-50">Last bounce: ${lastBounceText}</small>
+                            <small class="text-muted">Last bounce: ${lastBounceText}</small>
                             ${isInvalid ? `<small class="d-block text-warning"><i class="bi bi-info-circle"></i> ${domain.validation_reason || 'Invalid domain'}</small>` : ''}
                         </div>
                         <div class="text-end">
@@ -1341,8 +1341,8 @@ function displayDashboard(data) {
                         </div>
                     </div>
                     <div class="d-flex gap-2 mt-1">
-                        ${permanentFailures > 0 ? `<small class="text-white-50"><i class="bi bi-exclamation-triangle"></i> ${permanentFailures} permanent</small>` : ''}
-                        ${temporaryFailures > 0 ? `<small class="text-white-50"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
+                        ${permanentFailures > 0 ? `<small class="text-muted"><i class="bi bi-exclamation-triangle"></i> ${permanentFailures} permanent</small>` : ''}
+                        ${temporaryFailures > 0 ? `<small class="text-muted"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
                         ${permanentRate > 50 ? `<small class="text-warning"><i class="bi bi-exclamation-circle"></i> ${permanentRate}% permanent rate</small>` : ''}
                     </div>
                 </div>
@@ -1387,7 +1387,7 @@ function displayDashboard(data) {
     codesContainer.innerHTML = '';
     
     if (data.smtpCodes.length === 0) {
-        codesContainer.innerHTML = '<p class="text-white-50 mb-0">No SMTP codes found</p>';
+        codesContainer.innerHTML = '<p class="text-muted mb-0">No SMTP codes found</p>';
         return;
     }
     
@@ -1403,7 +1403,7 @@ function displayDashboard(data) {
     
     data.smtpCodes.forEach((code, index) => {
         const item = document.createElement('div');
-        item.className = 'mb-2 rounded bg-white bg-opacity-10 smtp-code-item';
+        item.className = 'mb-2 rounded smtp-code-item p-2';
         item.setAttribute('data-code-index', index);
         
         const description = code.description || 'No description available';
@@ -1437,15 +1437,15 @@ function displayDashboard(data) {
         let domainsHtml = '';
         if (domains.length > 0) {
             domainsHtml = '<div class="smtp-domains-list" style="display: none;">';
-            domainsHtml += '<div class="p-2 pt-0 mt-2 border-top border-white border-opacity-25">';
-            domainsHtml += '<small class="text-dark d-block mb-2"><i class="bi bi-globe"></i> Affected Domains:</small>';
+            domainsHtml += '<div class="p-2 pt-0 mt-2 border-top">';
+            domainsHtml += '<small class="d-block mb-2 fw-bold"><i class="bi bi-globe"></i> Affected Domains:</small>';
             domains.forEach(domain => {
                 const lastBounce = domain.last_bounce ? new Date(domain.last_bounce).toLocaleDateString() : 'N/A';
                 domainsHtml += `
-                    <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
-                        <span class="text-dark fw-bold">${domain.recipient_domain}</span>
-                        <span class="text-dark ms-2">(${domain.bounce_count} bounce${domain.bounce_count !== 1 ? 's' : ''})</span>
-                        <span class="text-dark ms-2">Last: ${lastBounce}</span>
+                    <div class="small mb-1 p-2 rounded notification-item">
+                        <span class="fw-bold">${domain.recipient_domain}</span>
+                        <span class="ms-2">(${domain.bounce_count} bounce${domain.bounce_count !== 1 ? 's' : ''})</span>
+                        <span class="ms-2 text-muted">Last: ${lastBounce}</span>
                     </div>
                 `;
             });
@@ -1453,21 +1453,21 @@ function displayDashboard(data) {
         }
         
         item.innerHTML = `
-            <div class="p-2 smtp-code-header" style="cursor: pointer;">
+            <div class="smtp-code-header" style="cursor: pointer;">
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <div class="flex-grow-1">
-                        <div class="fw-bold text-white">
+                        <div class="fw-bold">
                             <span class="badge bg-${codeColor} me-2">${code.smtp_code || 'N/A'}</span>
                             ${description}
                             ${domains.length > 0 ? '<i class="bi bi-chevron-down ms-2 smtp-chevron" style="font-size: 0.75rem; transition: transform 0.3s;"></i>' : ''}
                         </div>
-                        ${code.recommendation ? `<small class="text-white-50 d-block mt-1"><i class="bi bi-lightbulb"></i> ${code.recommendation}</small>` : ''}
+                        ${code.recommendation ? `<small class="text-muted d-block mt-1"><i class="bi bi-lightbulb"></i> ${code.recommendation}</small>` : ''}
                     </div>
                     <span class="badge bg-${codeColor} ms-2" title="Occurrences">${code.count}</span>
                 </div>
                 <div class="d-flex gap-3 mt-1">
-                    <small class="text-white-50"><i class="bi bi-globe"></i> ${affectedDomains} domain(s)</small>
-                    <small class="text-white-50"><i class="bi bi-calendar"></i> Last: ${lastSeenText}</small>
+                    <small class="text-muted"><i class="bi bi-globe"></i> ${affectedDomains} domain(s)</small>
+                    <small class="text-muted"><i class="bi bi-calendar"></i> Last: ${lastSeenText}</small>
                 </div>
             </div>
             ${domainsHtml}
@@ -1512,7 +1512,7 @@ function updateHeaderStats(stats) {
     document.getElementById('headerStats').innerHTML = `
         <span class="badge bg-info me-2">Total Bounces: ${stats.totalBounces}</span>
         <span class="badge bg-warning me-2">Queued Notifications: ${stats.queuedNotifications || 0}</span>
-        <span class="badge bg-primary me-2">Domains: ${stats.totalDomains}</span>
+        <span class="badge bg-secondary me-2">Domains: ${stats.totalDomains}</span>
         <span class="badge bg-success">Mailboxes: ${stats.activeMailboxes}</span>
     `;
 }
