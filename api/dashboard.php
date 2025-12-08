@@ -208,6 +208,44 @@ try {
     $stmt = $db->query("SELECT COUNT(*) as total FROM notifications_queue WHERE status = 'pending'");
     $queuedNotifications = $stmt->fetch()['total'];
 
+    // Get date range for graphs
+    $stmt = $db->query("SELECT MIN(bounce_date) as min_date, MAX(bounce_date) as max_date FROM bounces WHERE bounce_date IS NOT NULL");
+    $dateRange = $stmt->fetch();
+    $minDate = $dateRange['min_date'] ?? null;
+    $maxDate = $dateRange['max_date'] ?? null;
+
+    // Get timeline data for SMTP codes (daily aggregation)
+    $smtpTimeline = [];
+    if ($minDate && $maxDate) {
+        $stmt = $db->query("
+            SELECT 
+                DATE(bounce_date) as bounce_day,
+                smtp_code,
+                COUNT(*) as bounce_count
+            FROM bounces
+            WHERE smtp_code IS NOT NULL AND bounce_date IS NOT NULL
+            GROUP BY DATE(bounce_date), smtp_code
+            ORDER BY bounce_day ASC, smtp_code ASC
+        ");
+        $smtpTimeline = $stmt->fetchAll();
+    }
+
+    // Get timeline data for domains (daily aggregation)
+    $domainTimeline = [];
+    if ($minDate && $maxDate) {
+        $stmt = $db->query("
+            SELECT 
+                DATE(bounce_date) as bounce_day,
+                recipient_domain,
+                COUNT(*) as bounce_count
+            FROM bounces
+            WHERE recipient_domain IS NOT NULL AND bounce_date IS NOT NULL
+            GROUP BY DATE(bounce_date), recipient_domain
+            ORDER BY bounce_day ASC, recipient_domain ASC
+        ");
+        $domainTimeline = $stmt->fetchAll();
+    }
+
     echo json_encode([
         'success' => true,
         'data' => [
@@ -218,6 +256,12 @@ try {
                 'totalDomains' => $totalDomains,
                 'activeMailboxes' => $activeMailboxes,
                 'queuedNotifications' => $queuedNotifications
+            ],
+            'timeline' => [
+                'minDate' => $minDate,
+                'maxDate' => $maxDate,
+                'smtpCodes' => $smtpTimeline,
+                'domains' => $domainTimeline
             ]
         ]
     ]);

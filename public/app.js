@@ -1166,6 +1166,341 @@ async function loadDashboard() {
     }
 }
 
+// Chart instances
+let smtpTimelineChart = null;
+let domainTimelineChart = null;
+
+// Color palette for charts - distinct colors for maximum legibility
+const chartColors = [
+    '#3b82f6', // Blue
+    '#ef4444', // Red
+    '#10b981', // Green
+    '#f59e0b', // Amber
+    '#8b5cf6', // Purple
+    '#ec4899', // Pink
+    '#06b6d4', // Cyan
+    '#f97316', // Orange
+    '#84cc16', // Lime
+    '#6366f1', // Indigo
+    '#14b8a6', // Teal
+    '#f43f5e', // Rose
+    '#a855f7', // Violet
+    '#22c55e', // Emerald
+    '#eab308', // Yellow
+    '#0ea5e9', // Sky
+];
+
+// Generate distinct colors for multiple series
+function getColorForIndex(index) {
+    return chartColors[index % chartColors.length];
+}
+
+// Generate color with transparency
+function getColorWithAlpha(color, alpha = 0.3) {
+    // Convert hex to rgba
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Get theme-aware text color
+function getTextColor() {
+    const theme = document.body.getAttribute('data-theme');
+    return theme === 'dark' ? '#f1f5f9' : '#0f172a';
+}
+
+// Get theme-aware grid color
+function getGridColor() {
+    const theme = document.body.getAttribute('data-theme');
+    return theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)';
+}
+
+// Render SMTP Codes Timeline Chart
+function renderSmtpTimelineChart(timelineData, minDate, maxDate) {
+    const ctx = document.getElementById('smtpTimelineChart');
+    if (!ctx || !timelineData || timelineData.length === 0) {
+        if (smtpTimelineChart) {
+            smtpTimelineChart.destroy();
+            smtpTimelineChart = null;
+        }
+        return;
+    }
+
+    // Group data by SMTP code
+    const codeData = {};
+    timelineData.forEach(item => {
+        if (!codeData[item.smtp_code]) {
+            codeData[item.smtp_code] = {};
+        }
+        codeData[item.smtp_code][item.bounce_day] = parseInt(item.bounce_count);
+    });
+
+    // Get all unique dates
+    const allDates = new Set();
+    timelineData.forEach(item => allDates.add(item.bounce_day));
+    const sortedDates = Array.from(allDates).sort();
+
+    // Create datasets for each SMTP code
+    const datasets = [];
+    const codes = Object.keys(codeData).sort();
+    codes.forEach((code, index) => {
+        const color = getColorForIndex(index);
+        const data = sortedDates.map(date => ({
+            x: date,
+            y: codeData[code][date] || 0
+        }));
+
+        datasets.push({
+            label: `SMTP ${code}`,
+            data: data,
+            borderColor: color,
+            backgroundColor: getColorWithAlpha(color, 0.2),
+            fill: true,
+            tension: 0.4, // Smooth curve
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2
+        });
+    });
+
+    // Destroy existing chart if it exists
+    if (smtpTimelineChart) {
+        smtpTimelineChart.destroy();
+    }
+
+    smtpTimelineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 10,
+                        font: {
+                            size: 11
+                        },
+                        color: getTextColor()
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                },
+                zoom: {
+                    zoom: {
+                        wheel: {
+                            enabled: true
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        mode: 'x'
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'day',
+                        displayFormats: {
+                            day: 'MMM dd'
+                        }
+                    },
+                    min: minDate,
+                    max: maxDate,
+                    title: {
+                        display: true,
+                        text: 'Date',
+                        color: getTextColor()
+                    },
+                    ticks: {
+                        color: getTextColor()
+                    },
+                    grid: {
+                        color: getGridColor()
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Bounce Count',
+                        color: getTextColor()
+                    },
+                    ticks: {
+                        color: getTextColor()
+                    },
+                    grid: {
+                        color: getGridColor()
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render Domains Timeline Chart
+function renderDomainTimelineChart(timelineData, minDate, maxDate) {
+    const ctx = document.getElementById('domainTimelineChart');
+    if (!ctx || !timelineData || timelineData.length === 0) {
+        if (domainTimelineChart) {
+            domainTimelineChart.destroy();
+            domainTimelineChart = null;
+        }
+        return;
+    }
+
+    // Group data by domain
+    const domainData = {};
+    timelineData.forEach(item => {
+        if (!domainData[item.recipient_domain]) {
+            domainData[item.recipient_domain] = {};
+        }
+        domainData[item.recipient_domain][item.bounce_day] = parseInt(item.bounce_count);
+    });
+
+    // Get all unique dates
+    const allDates = new Set();
+    timelineData.forEach(item => allDates.add(item.bounce_day));
+    const sortedDates = Array.from(allDates).sort();
+
+    // Create datasets for each domain (limit to top 15 for legibility)
+    const domains = Object.keys(domainData).sort((a, b) => {
+        const totalA = Object.values(domainData[a]).reduce((sum, count) => sum + count, 0);
+        const totalB = Object.values(domainData[b]).reduce((sum, count) => sum + count, 0);
+        return totalB - totalA;
+    }).slice(0, 15);
+
+    const datasets = [];
+    domains.forEach((domain, index) => {
+        const color = getColorForIndex(index);
+        const data = sortedDates.map(date => ({
+            x: date,
+            y: domainData[domain][date] || 0
+        }));
+
+        datasets.push({
+            label: domain,
+            data: data,
+            borderColor: color,
+            backgroundColor: getColorWithAlpha(color, 0.2),
+            fill: true,
+            tension: 0.4, // Smooth curve
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2
+        });
+    });
+
+    // Destroy existing chart if it exists
+    if (domainTimelineChart) {
+        domainTimelineChart.destroy();
+    }
+
+    domainTimelineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 10,
+                        font: {
+                            size: 11
+                        },
+                        color: getTextColor()
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                },
+                zoom: {
+                    zoom: {
+                        wheel: {
+                            enabled: true
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        mode: 'x'
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'day',
+                        displayFormats: {
+                            day: 'MMM dd'
+                        }
+                    },
+                    min: minDate,
+                    max: maxDate,
+                    title: {
+                        display: true,
+                        text: 'Date',
+                        color: getTextColor()
+                    },
+                    ticks: {
+                        color: getTextColor()
+                    },
+                    grid: {
+                        color: getGridColor()
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Bounce Count',
+                        color: getTextColor()
+                    },
+                    ticks: {
+                        color: getTextColor()
+                    },
+                    grid: {
+                        color: getGridColor()
+                    }
+                }
+            }
+        }
+    });
+}
+
 function displayDashboard(data) {
     // Top domains - enhanced display
     const domainsContainer = document.getElementById('topDomains');
@@ -1521,6 +1856,12 @@ function displayDashboard(data) {
         
         codesContainer.appendChild(item);
     });
+    
+    // Render timeline charts
+    if (data.timeline) {
+        renderSmtpTimelineChart(data.timeline.smtpCodes, data.timeline.minDate, data.timeline.maxDate);
+        renderDomainTimelineChart(data.timeline.domains, data.timeline.minDate, data.timeline.maxDate);
+    }
 }
 
 function updateHeaderStats(stats) {
