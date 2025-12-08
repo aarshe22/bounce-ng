@@ -13,18 +13,36 @@ $db = Database::getInstance();
 $auth->requireAuth();
 
 try {
-    // Get top recipient domains
+    // Get top recipient domains with additional stats
     $stmt = $db->query("
-        SELECT domain, bounce_count, trust_score, last_bounce_date
-        FROM recipient_domains
-        ORDER BY bounce_count DESC
+        SELECT 
+            rd.domain, 
+            rd.bounce_count, 
+            rd.trust_score, 
+            rd.last_bounce_date,
+            COUNT(DISTINCT b.id) as total_bounces,
+            MIN(b.bounce_date) as first_bounce_date,
+            MAX(b.bounce_date) as last_bounce_date_actual,
+            COUNT(DISTINCT CASE WHEN b.deliverability_status = 'permanent_failure' THEN b.id END) as permanent_failures,
+            COUNT(DISTINCT CASE WHEN b.deliverability_status = 'temporary_failure' THEN b.id END) as temporary_failures
+        FROM recipient_domains rd
+        LEFT JOIN bounces b ON rd.domain = b.recipient_domain
+        GROUP BY rd.domain, rd.bounce_count, rd.trust_score, rd.last_bounce_date
+        ORDER BY rd.bounce_count DESC
         LIMIT 20
     ");
     $domains = $stmt->fetchAll();
 
-    // Get all SMTP codes with descriptions (no limit - show all)
+    // Get all SMTP codes with descriptions and additional stats
     $stmt = $db->query("
-        SELECT b.smtp_code, COUNT(*) as count, sc.description, sc.recommendation
+        SELECT 
+            b.smtp_code, 
+            COUNT(*) as count, 
+            sc.description, 
+            sc.recommendation,
+            COUNT(DISTINCT b.recipient_domain) as affected_domains,
+            MIN(b.bounce_date) as first_seen,
+            MAX(b.bounce_date) as last_seen
         FROM bounces b
         LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
         WHERE b.smtp_code IS NOT NULL

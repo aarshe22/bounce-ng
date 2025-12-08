@@ -1068,26 +1068,78 @@ async function loadDashboard() {
 }
 
 function displayDashboard(data) {
-    // Top domains
+    // Top domains - enhanced display
     const domainsContainer = document.getElementById('topDomains');
     domainsContainer.innerHTML = '';
-    data.domains.slice(0, 10).forEach(domain => {
-        const item = document.createElement('div');
-        item.className = 'mb-2';
-        const trustClass = domain.trust_score >= 70 ? 'high' : domain.trust_score >= 40 ? 'medium' : 'low';
-        item.innerHTML = `
-            <div class="d-flex justify-content-between">
-                <span>${domain.domain}</span>
-                <div>
-                    <span class="badge bg-secondary me-1">${domain.bounce_count}</span>
-                    <span class="badge badge-trust ${trustClass}">${domain.trust_score}</span>
-                </div>
-            </div>
-        `;
-        domainsContainer.appendChild(item);
-    });
     
-    // All SMTP codes (sorted by count descending)
+    if (data.domains.length === 0) {
+        domainsContainer.innerHTML = '<p class="text-white-50 mb-0">No domains found</p>';
+    } else {
+        data.domains.forEach(domain => {
+            const item = document.createElement('div');
+            item.className = 'mb-2 p-2 rounded bg-white bg-opacity-10';
+            
+            // Convert trust score from 0-100 to 1-10 scale for display
+            // 0-100 stored internally, 1-10 displayed (1 = least trusted, 10 = most trusted)
+            let trustScore10;
+            if (domain.trust_score === null || domain.trust_score === undefined) {
+                trustScore10 = 5; // Default neutral score
+            } else {
+                // Convert: 0-100 -> 1-10
+                // 0 -> 1, 50 -> 5, 100 -> 10
+                trustScore10 = Math.max(1, Math.min(10, Math.round((domain.trust_score / 100) * 10)));
+                // Handle edge case: if stored as 0, it means worst trust (1/10)
+                if (domain.trust_score === 0) {
+                    trustScore10 = 1;
+                }
+            }
+            const trustClass = trustScore10 >= 7 ? 'high' : trustScore10 >= 4 ? 'medium' : 'low';
+            
+            // Format last bounce date
+            let lastBounceText = 'Never';
+            if (domain.last_bounce_date) {
+                const lastBounce = new Date(domain.last_bounce_date);
+                const now = new Date();
+                const daysAgo = Math.floor((now - lastBounce) / (1000 * 60 * 60 * 24));
+                if (daysAgo === 0) {
+                    lastBounceText = 'Today';
+                } else if (daysAgo === 1) {
+                    lastBounceText = 'Yesterday';
+                } else if (daysAgo < 7) {
+                    lastBounceText = `${daysAgo} days ago`;
+                } else {
+                    lastBounceText = lastBounce.toLocaleDateString();
+                }
+            }
+            
+            // Calculate bounce rate indicators
+            const permanentFailures = domain.permanent_failures || 0;
+            const temporaryFailures = domain.temporary_failures || 0;
+            const totalFailures = permanentFailures + temporaryFailures;
+            const permanentRate = domain.bounce_count > 0 ? ((permanentFailures / domain.bounce_count) * 100).toFixed(0) : 0;
+            
+            item.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-white">${domain.domain}</div>
+                        <small class="text-white-50">Last bounce: ${lastBounceText}</small>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-secondary me-1" title="Total bounces">${domain.bounce_count}</span>
+                        <span class="badge badge-trust ${trustClass}" title="Trust score (1-10)">${trustScore10}/10</span>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-1">
+                    ${permanentFailures > 0 ? `<small class="text-white-50"><i class="bi bi-exclamation-triangle"></i> ${permanentFailures} permanent</small>` : ''}
+                    ${temporaryFailures > 0 ? `<small class="text-white-50"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
+                    ${permanentRate > 50 ? `<small class="text-warning"><i class="bi bi-exclamation-circle"></i> ${permanentRate}% permanent rate</small>` : ''}
+                </div>
+            `;
+            domainsContainer.appendChild(item);
+        });
+    }
+    
+    // All SMTP codes - enhanced display with matching color scheme
     const codesContainer = document.getElementById('topSmtpCodes');
     codesContainer.innerHTML = '';
     
@@ -1108,22 +1160,48 @@ function displayDashboard(data) {
     
     data.smtpCodes.forEach(code => {
         const item = document.createElement('div');
-        item.className = 'mb-2 p-2 rounded';
+        item.className = 'mb-2 p-2 rounded bg-white bg-opacity-10';
+        
         const description = code.description || 'No description available';
         const codeColor = getCodeColor(code.smtp_code);
-        const bgClass = codeColor === 'danger' ? 'bg-danger bg-opacity-25' : 
-                       codeColor === 'warning' ? 'bg-warning bg-opacity-25' : 
-                       codeColor === 'success' ? 'bg-success bg-opacity-25' : 
-                       'bg-info bg-opacity-25';
-        item.className += ' ' + bgClass;
+        const affectedDomains = code.affected_domains || 0;
+        
+        // Format dates
+        let firstSeenText = 'N/A';
+        let lastSeenText = 'N/A';
+        if (code.first_seen) {
+            const firstSeen = new Date(code.first_seen);
+            firstSeenText = firstSeen.toLocaleDateString();
+        }
+        if (code.last_seen) {
+            const lastSeen = new Date(code.last_seen);
+            const now = new Date();
+            const daysAgo = Math.floor((now - lastSeen) / (1000 * 60 * 60 * 24));
+            if (daysAgo === 0) {
+                lastSeenText = 'Today';
+            } else if (daysAgo === 1) {
+                lastSeenText = 'Yesterday';
+            } else if (daysAgo < 7) {
+                lastSeenText = `${daysAgo} days ago`;
+            } else {
+                lastSeenText = lastSeen.toLocaleDateString();
+            }
+        }
         
         item.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start">
+            <div class="d-flex justify-content-between align-items-start mb-1">
                 <div class="flex-grow-1">
-                    <div class="fw-bold text-white">${code.smtp_code || 'N/A'}</div>
-                    <small class="text-white-50">${description}</small>
+                    <div class="fw-bold text-white">
+                        <span class="badge bg-${codeColor} me-2">${code.smtp_code || 'N/A'}</span>
+                        ${description}
+                    </div>
+                    ${code.recommendation ? `<small class="text-white-50 d-block mt-1"><i class="bi bi-lightbulb"></i> ${code.recommendation}</small>` : ''}
                 </div>
-                <span class="badge bg-${codeColor} ms-2">${code.count}</span>
+                <span class="badge bg-${codeColor} ms-2" title="Occurrences">${code.count}</span>
+            </div>
+            <div class="d-flex gap-3 mt-1">
+                <small class="text-white-50"><i class="bi bi-globe"></i> ${affectedDomains} domain(s)</small>
+                <small class="text-white-50"><i class="bi bi-calendar"></i> Last: ${lastSeenText}</small>
             </div>
         `;
         codesContainer.appendChild(item);
