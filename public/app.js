@@ -311,11 +311,26 @@ document.getElementById('themeIcon').className = savedTheme === 'light' ? 'bi bi
 function loadUserInfo() {
     // Get user info from session (injected in index.php)
     const userName = document.getElementById('userName');
+    const userRoleBadge = document.getElementById('userRoleBadge');
+    
     if (userName) {
         // Check if admin status is in data attribute
         const isAdminAttr = userName.getAttribute('data-is-admin');
         if (isAdminAttr !== null) {
             userIsAdmin = isAdminAttr === '1';
+        }
+        
+        // Update role badge
+        if (userRoleBadge) {
+            if (userIsAdmin) {
+                userRoleBadge.textContent = 'Admin';
+                userRoleBadge.className = 'badge me-2 bg-success';
+                userRoleBadge.style.display = '';
+            } else {
+                userRoleBadge.textContent = 'Read Only';
+                userRoleBadge.className = 'badge me-2 bg-secondary';
+                userRoleBadge.style.display = '';
+            }
         }
         
         // Update UI based on admin status
@@ -1509,10 +1524,13 @@ function displayDashboard(data) {
 }
 
 function updateHeaderStats(stats) {
-    document.getElementById('headerStats').innerHTML = `
-        <span class="badge bg-info me-2">Total Bounces: ${stats.totalBounces}</span>
-        <span class="badge bg-warning me-2">Queued Notifications: ${stats.queuedNotifications || 0}</span>
-        <span class="badge bg-secondary me-2">Domains: ${stats.totalDomains}</span>
+    const headerStats = document.getElementById('headerStats');
+    if (!headerStats) return;
+    
+    headerStats.innerHTML = `
+        <span class="badge bg-info">Total Bounces: ${stats.totalBounces}</span>
+        <span class="badge bg-warning">Queued Notifications: ${stats.queuedNotifications || 0}</span>
+        <span class="badge bg-secondary">Domains: ${stats.totalDomains}</span>
         <span class="badge bg-success">Mailboxes: ${stats.activeMailboxes}</span>
     `;
 }

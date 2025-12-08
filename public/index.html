@@ -13,41 +13,49 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand" href="#"><i class="bi bi-envelope-exclamation"></i> Bounce Monitor</a>
-            <div class="d-flex align-items-center">
-                <!-- View Toggle Buttons -->
-                <div class="btn-group me-3" role="group">
-                    <button type="button" class="btn btn-sm btn-outline-light active" id="viewDashboardBtn" onclick="switchView('dashboard')">
-                        <i class="bi bi-speedometer2"></i> Dashboard
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light" id="viewNotificationsBtn" onclick="switchView('notifications')">
-                        <i class="bi bi-envelope"></i> Notification Queue
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light" id="viewEventsBtn" onclick="switchView('events')">
-                        <i class="bi bi-list-ul"></i> Event Log
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light" id="viewControlsBtn" onclick="switchView('controls')">
-                        <i class="bi bi-gear"></i> Control Panel
-                    </button>
-                </div>
-                <button class="btn btn-sm btn-outline-light me-2" id="runCronBtn" onclick="runCron()" title="Run Cron Script">
-                    <i class="bi bi-play-circle"></i> RUN CRON
-                </button>
-                <button class="btn btn-link text-white me-2" id="helpBtn" onclick="showHelp()" title="Help & Documentation">
-                    <i class="bi bi-question-circle"></i>
-                </button>
-                <button class="btn btn-link text-white me-2" id="themeToggle" title="Toggle theme">
-                    <i class="bi bi-sun" id="themeIcon"></i>
-                </button>
-                <span class="navbar-text text-white me-3" id="headerStats"></span>
-                <div class="dropdown">
-                    <button class="btn btn-link text-white dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i> <span id="userName"></span>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item" href="#" id="userManagementBtn"><i class="bi bi-people"></i> User Management</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                    </ul>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarContent">
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center w-100">
+                    <!-- View Toggle Buttons -->
+                    <div class="btn-group me-3 mb-2 mb-lg-0 flex-wrap" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-light active" id="viewDashboardBtn" onclick="switchView('dashboard')">
+                            <i class="bi bi-speedometer2"></i> <span class="d-none d-md-inline">Dashboard</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewNotificationsBtn" onclick="switchView('notifications')">
+                            <i class="bi bi-envelope"></i> <span class="d-none d-md-inline">Notification Queue</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewEventsBtn" onclick="switchView('events')">
+                            <i class="bi bi-list-ul"></i> <span class="d-none d-md-inline">Event Log</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewControlsBtn" onclick="switchView('controls')">
+                            <i class="bi bi-gear"></i> <span class="d-none d-md-inline">Control Panel</span>
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center flex-wrap gap-2 mb-2 mb-lg-0">
+                        <button class="btn btn-sm btn-outline-light" id="runCronBtn" onclick="runCron()" title="Run Cron Script">
+                            <i class="bi bi-play-circle"></i> <span class="d-none d-lg-inline">RUN CRON</span>
+                        </button>
+                        <button class="btn btn-link text-white" id="helpBtn" onclick="showHelp()" title="Help & Documentation">
+                            <i class="bi bi-question-circle"></i>
+                        </button>
+                        <button class="btn btn-link text-white" id="themeToggle" title="Toggle theme">
+                            <i class="bi bi-sun" id="themeIcon"></i>
+                        </button>
+                        <div class="d-flex flex-wrap gap-1 align-items-center" id="headerStats"></div>
+                        <div class="dropdown">
+                            <button class="btn btn-link text-white dropdown-toggle d-flex align-items-center" type="button" data-bs-toggle="dropdown">
+                                <span class="badge me-2" id="userRoleBadge" style="display: none;"></span>
+                                <i class="bi bi-person-circle"></i> <span id="userName"></span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" id="userManagementBtn"><i class="bi bi-people"></i> User Management</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="/logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
