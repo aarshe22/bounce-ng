@@ -1897,6 +1897,287 @@ async function deleteUser(id) {
     }
 }
 
+// Help System
+function showHelp() {
+    const helpContent = document.getElementById('helpContent');
+    if (!helpContent) return;
+    
+    helpContent.innerHTML = `
+        <div class="help-content">
+            <h4><i class="bi bi-info-circle"></i> About Bounce Monitor</h4>
+            <p>Bounce Monitor is a comprehensive web application for monitoring email bounce mailboxes, parsing bounce messages, managing bounce notifications, and tracking domain trust scores.</p>
+            
+            <hr>
+            
+            <h5><i class="bi bi-speedometer2"></i> Dashboard</h5>
+            <p>The Dashboard provides an overview of your bounce monitoring system with real-time statistics and key information.</p>
+            
+            <h6>Statistics Header</h6>
+            <ul>
+                <li><strong>Total Bounces</strong>: Total number of bounce messages processed</li>
+                <li><strong>Queued Notifications</strong>: Number of pending notifications waiting to be sent</li>
+            </ul>
+            
+            <h6>Domains Panel</h6>
+            <p>Shows all recipient domains that have received bounces:</p>
+            <ul>
+                <li><strong>Domain Name</strong>: The recipient domain</li>
+                <li><strong>Trust Score</strong>: Score from 1-10 (1 = least trusted, 10 = most trusted)</li>
+                <li><strong>Bounce Count</strong>: Total number of bounces for this domain</li>
+                <li><strong>Last Bounce</strong>: When the last bounce occurred</li>
+                <li><strong>Permanent/Temporary Failures</strong>: Breakdown of failure types</li>
+                <li><strong>Invalid Domain Badge</strong>: Red badge indicates domain does not resolve via DNS</li>
+            </ul>
+            <p><strong>Click any domain</strong> to expand and view:</p>
+            <ul>
+                <li>Recent bounces with details</li>
+                <li>SMTP codes breakdown</li>
+                <li>Bounce timeline (last 30 days)</li>
+                <li>Associated email addresses (for invalid domains)</li>
+            </ul>
+            
+            <h6>SMTP Codes Panel</h6>
+            <p>Shows all SMTP error codes encountered:</p>
+            <ul>
+                <li><strong>SMTP Code</strong>: The error code (e.g., 550, 451)</li>
+                <li><strong>Description</strong>: What the code means</li>
+                <li><strong>Recommendation</strong>: Suggested action</li>
+                <li><strong>Occurrences</strong>: How many times this code was seen</li>
+                <li><strong>Affected Domains</strong>: Number of domains with this code</li>
+                <li><strong>Last Seen</strong>: When this code was last encountered</li>
+            </ul>
+            <p><strong>Click any SMTP code</strong> to expand and view all affected domains with bounce counts.</p>
+            
+            <h6>Notification Queue (Dashboard)</h6>
+            <p>Shows pending notifications that need to be sent:</p>
+            <ul>
+                <li><strong>Filter</strong>: Search notifications by recipient, domain, or SMTP code</li>
+                <li><strong>Sort</strong>: Sort by date, recipient, or domain</li>
+                <li><strong>Apply</strong>: Apply filter and sort settings</li>
+                <li><strong>Deduplicate</strong>: Remove duplicate notifications (admin only)</li>
+                <li><strong>Select All/Deselect All</strong>: Select or deselect all notifications</li>
+                <li><strong>Send Selected</strong>: Send selected notifications (admin only)</li>
+            </ul>
+            
+            <hr>
+            
+            <h5><i class="bi bi-envelope"></i> Notification Queue Page</h5>
+            <p>Dedicated page for managing pending notifications. Same features as Dashboard notification queue but with more space for viewing.</p>
+            <p><strong>Note</strong>: All write operations (Send, Deduplicate) require admin privileges.</p>
+            
+            <hr>
+            
+            <h5><i class="bi bi-list-ul"></i> Event Log</h5>
+            <p>Comprehensive log of all system events and activities.</p>
+            
+            <h6>Features</h6>
+            <ul>
+                <li><strong>Search</strong>: Search events by text content</li>
+                <li><strong>Severity Filter</strong>: Filter by info, success, warning, error, or debug</li>
+                <li><strong>Sort</strong>: Sort by date or severity</li>
+                <li><strong>Refresh</strong>: Manually refresh the event log</li>
+                <li><strong>Pagination</strong>: Navigate through events (50+ per page)</li>
+            </ul>
+            
+            <h6>Event Types</h6>
+            <ul>
+                <li><strong>Info</strong>: General information messages</li>
+                <li><strong>Success</strong>: Successful operations</li>
+                <li><strong>Warning</strong>: Warning messages</li>
+                <li><strong>Error</strong>: Error messages</li>
+                <li><strong>Debug</strong>: Debug information (detailed troubleshooting)</li>
+            </ul>
+            
+            <hr>
+            
+            <h5><i class="bi bi-gear"></i> Control Panel</h5>
+            <p>Administrative controls and configuration (admin only for write operations).</p>
+            
+            <h6>Settings</h6>
+            <ul>
+                <li><strong>Test Mode</strong>: When enabled, all notifications go to override email instead of original recipients</li>
+                <li><strong>Override Email</strong>: Email address to receive test notifications</li>
+                <li><strong>Real-time Notifications</strong>: When enabled, notifications are sent immediately after processing. When disabled, notifications are queued for manual sending</li>
+            </ul>
+            
+            <h6>Mailbox Management</h6>
+            <ul>
+                <li><strong>Add Mailbox</strong>: Add a new IMAP mailbox to monitor</li>
+                <li><strong>Edit Mailbox</strong>: Click on a mailbox in the list to edit</li>
+                <li><strong>Test Connection</strong>: Test IMAP connection before saving</li>
+                <li><strong>Browse Folders</strong>: Select folders from the IMAP server</li>
+                <li><strong>Run Processing</strong>: Manually process all enabled mailboxes (admin only)</li>
+            </ul>
+            
+            <h6>Notification Template</h6>
+            <p>Customize the email template sent to original CC recipients when bounces occur.</p>
+            <p><strong>Available Placeholders</strong>:</p>
+            <ul>
+                <li><code>{{original_to}}</code> - Original TO address</li>
+                <li><code>{{original_cc}}</code> - Original CC addresses</li>
+                <li><code>{{original_subject}}</code> - Original email subject</li>
+                <li><code>{{bounce_date}}</code> - Bounce date and time</li>
+                <li><code>{{smtp_code}}</code> - SMTP error code</li>
+                <li><code>{{smtp_reason}}</code> - SMTP error reason</li>
+                <li><code>{{recipient_domain}}</code> - Recipient domain</li>
+                <li><code>{{recommendation}}</code> - SMTP code recommendation</li>
+            </ul>
+            
+            <h6>Relay Providers</h6>
+            <p>Configure SMTP relay providers for sending notifications:</p>
+            <ul>
+                <li><strong>Add Relay Provider</strong>: Add a new SMTP relay</li>
+                <li><strong>Edit Relay Provider</strong>: Click on a relay in the list to edit</li>
+                <li><strong>Test Connection</strong>: Test SMTP connection before saving</li>
+                <li><strong>Assign to Mailbox</strong>: Each mailbox can use a specific relay provider</li>
+            </ul>
+            
+            <h6>Backup & Restore</h6>
+            <ul>
+                <li><strong>Backup Configuration</strong>: Download configuration as JSON file (includes users, mailboxes, relay providers, templates, settings)</li>
+                <li><strong>Restore from Backup</strong>: Upload a backup JSON file to restore configuration</li>
+                <li><strong>Note</strong>: Backup excludes bounce data and logs</li>
+            </ul>
+            
+            <h6>Database Operations</h6>
+            <ul>
+                <li><strong>Queue Notifications from Existing Bounces</strong>: Retroactively queue notifications for bounces that already exist (admin only)</li>
+                <li><strong>Reset Database</strong>: Clear all bounces, notifications, domains, and events (keeps users, relays, mailboxes) (admin only)</li>
+            </ul>
+            
+            <hr>
+            
+            <h5><i class="bi bi-play-circle"></i> Header Buttons</h5>
+            
+            <h6>Dashboard</h6>
+            <p>Switch to the Dashboard view showing statistics, domains, SMTP codes, and notification queue.</p>
+            
+            <h6>Notification Queue</h6>
+            <p>Switch to the dedicated Notification Queue page for managing pending notifications.</p>
+            
+            <h6>Event Log</h6>
+            <p>Switch to the Event Log view showing all system events and activities.</p>
+            
+            <h6>Control Panel</h6>
+            <p>Switch to the Control Panel for administrative tasks and configuration.</p>
+            
+            <h6>RUN CRON</h6>
+            <p>Manually execute the cron script to process mailboxes and send notifications (admin only). This is equivalent to running <code>notify-cron.php</code> from the command line.</p>
+            
+            <h6>Help</h6>
+            <p>Open this help documentation.</p>
+            
+            <h6>Theme Toggle</h6>
+            <p>Switch between light and dark themes. Your preference is saved.</p>
+            
+            <h6>User Menu</h6>
+            <ul>
+                <li><strong>User Management</strong>: Manage users, grant admin privileges, enable/disable users (admin only)</li>
+                <li><strong>Logout</strong>: Sign out of the application</li>
+            </ul>
+            
+            <hr>
+            
+            <h5><i class="bi bi-shield-check"></i> User Roles & Permissions</h5>
+            
+            <h6>Administrator</h6>
+            <p>Full access to all features:</p>
+            <ul>
+                <li>Run processing</li>
+                <li>Send notifications</li>
+                <li>Deduplicate notifications</li>
+                <li>Reset database</li>
+                <li>Manage users</li>
+                <li>Configure mailboxes and relay providers</li>
+                <li>Backup/restore configuration</li>
+                <li>Modify settings and templates</li>
+            </ul>
+            
+            <h6>Read-only User</h6>
+            <p>Can view all data but cannot perform write operations:</p>
+            <ul>
+                <li>View dashboard</li>
+                <li>View event log</li>
+                <li>View notification queue</li>
+                <li>Filter and sort data</li>
+                <li><strong>Cannot</strong> run processing, send notifications, or modify configuration</li>
+            </ul>
+            
+            <p><strong>Note</strong>: The first user to log in automatically becomes an administrator. All subsequent users are read-only until approved by an admin.</p>
+            
+            <hr>
+            
+            <h5><i class="bi bi-clock-history"></i> How It Works</h5>
+            
+            <h6>Processing Flow</h6>
+            <ol>
+                <li><strong>Connect to Mailbox</strong>: System connects to configured IMAP mailboxes</li>
+                <li><strong>Read Messages</strong>: Reads messages from the INBOX folder</li>
+                <li><strong>Identify Bounces</strong>: Determines if message is a legitimate bounce (not auto-reply, OOO, etc.)</li>
+                <li><strong>Parse Bounce</strong>: Extracts bounce information (SMTP code, reason, recipient, etc.)</li>
+                <li><strong>Store Bounce</strong>: Saves bounce record to database</li>
+                <li><strong>Calculate Trust Score</strong>: Updates domain trust score based on bounce</li>
+                <li><strong>Queue Notification</strong>: If CC addresses found, queues notification to original CC recipients</li>
+                <li><strong>Move Message</strong>: Moves processed message to PROCESSED, PROBLEM, or SKIPPED folder</li>
+            </ol>
+            
+            <h6>Notification Flow</h6>
+            <ol>
+                <li><strong>Queue</strong>: Notifications are queued when bounces are processed</li>
+                <li><strong>Real-time Mode</strong>: Notifications sent immediately after processing</li>
+                <li><strong>Queue Mode</strong>: Notifications queued for manual review and sending</li>
+                <li><strong>Send</strong>: Admin selects notifications and sends them</li>
+                <li><strong>Template</strong>: Email template is used with placeholders filled in</li>
+                <li><strong>Delivery</strong>: Notification sent via configured SMTP relay provider</li>
+            </ol>
+            
+            <h6>Trust Score Calculation</h6>
+            <p>Trust scores (1-10) are calculated based on:</p>
+            <ul>
+                <li><strong>DNS Reputation</strong>: MX records, SPF, DMARC, domain resolution</li>
+                <li><strong>Bounce Patterns</strong>: Historical bounce count, permanent vs temporary failures</li>
+                <li><strong>SMTP Codes</strong>: Specific error codes affect score differently</li>
+                <li><strong>Recency</strong>: Recent bounces have more impact</li>
+                <li><strong>Spam Score</strong>: Spam indicators reduce trust</li>
+            </ul>
+            
+            <hr>
+            
+            <h5><i class="bi bi-question-circle"></i> Common Questions</h5>
+            
+            <h6>Why are some domains marked as invalid?</h6>
+            <p>Domains are validated via DNS lookups. If a domain doesn't resolve (no A, AAAA, or MX records), it's marked as invalid. This often indicates typos in email addresses.</p>
+            
+            <h6>What does trust score mean?</h6>
+            <p>Trust score (1-10) indicates how trustworthy a recipient domain is. Lower scores indicate more bounce problems. Scores are calculated automatically based on bounce history and DNS reputation.</p>
+            
+            <h6>Why are notifications queued instead of sent?</h6>
+            <p>If "Real-time Notifications" is disabled in Control Panel, notifications are queued for manual review. Enable it to send notifications immediately after processing.</p>
+            
+            <h6>How do I test without sending real notifications?</h6>
+            <p>Enable "Test Mode" in Control Panel and set an override email address. All notifications will go to that address instead of original recipients.</p>
+            
+            <h6>What's the difference between permanent and temporary failures?</h6>
+            <p>Permanent failures (550-559) indicate the email address doesn't exist or is blocked. Temporary failures (450-459) indicate temporary issues like mailbox full or server problems.</p>
+            
+            <h6>How often should I run processing?</h6>
+            <p>Set up a cron job to run <code>notify-cron.php</code> every 5-15 minutes for automated processing. You can also use the "RUN CRON" button for manual execution.</p>
+            
+            <hr>
+            
+            <h5><i class="bi bi-book"></i> Additional Resources</h5>
+            <ul>
+                <li>See README.md in the repository for detailed installation and configuration instructions</li>
+                <li>Check the Event Log for detailed error messages and troubleshooting information</li>
+                <li>Review SMTP code descriptions in the Dashboard for recommendations</li>
+            </ul>
+        </div>
+    `;
+    
+    const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+    helpModal.show();
+}
+
 // Run Cron Script
 async function runCron() {
     if (!userIsAdmin) {

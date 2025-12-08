@@ -32,6 +32,9 @@
                 <button class="btn btn-sm btn-outline-light me-2" id="runCronBtn" onclick="runCron()" title="Run Cron Script">
                     <i class="bi bi-play-circle"></i> RUN CRON
                 </button>
+                <button class="btn btn-link text-white me-2" id="helpBtn" onclick="showHelp()" title="Help & Documentation">
+                    <i class="bi bi-question-circle"></i>
+                </button>
                 <button class="btn btn-link text-white me-2" id="themeToggle" title="Toggle theme">
                     <i class="bi bi-sun" id="themeIcon"></i>
                 </button>
@@ -503,6 +506,21 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="saveTemplate()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div class="modal fade" id="helpModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-question-circle"></i> Help & Documentation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="helpContent" style="max-height: 70vh; overflow-y: auto;">
+                    <!-- Help content will be loaded here -->
                 </div>
             </div>
         </div>
