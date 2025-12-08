@@ -37,10 +37,23 @@ class MailboxMonitor {
         }
         $connectionString .= "}";
 
+        // Set IMAP timeout options before connecting
+        // OP_HALFOPEN: Don't open mailbox, just connect
+        // CL_EXPUNGE: Expunge deleted messages on close
+        $options = OP_HALFOPEN | CL_EXPUNGE;
+        
+        // Set timeout (30 seconds for connection)
+        $this->eventLogger->log('debug', "Attempting IMAP connection to {$server}:{$port} with protocol {$protocol}", null, $this->mailbox['id']);
+        
         $this->imapConnection = @\imap_open(
             $connectionString,
             $this->mailbox['imap_username'],
-            $this->mailbox['imap_password']
+            $this->mailbox['imap_password'],
+            $options,
+            3, // Retry count
+            [
+                'DISABLE_AUTHENTICATOR' => 'GSSAPI' // Disable problematic authenticators
+            ]
         );
 
         if (!$this->imapConnection) {
@@ -135,7 +148,21 @@ class MailboxMonitor {
         
         // Get the actual mailbox path from imap_list (more reliable than constructing it)
         // Use comprehensive folder matching to support custom folders
+        $this->eventLogger->log('debug', "Calling imap_list() to get mailbox folders...", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: Calling imap_list() to get mailbox folders...");
+        
         $allMailboxes = @\imap_list($this->imapConnection, $connectionString, "*");
+        
+        if ($allMailboxes === false) {
+            $error = \imap_last_error();
+            $this->eventLogger->log('error', "imap_list() failed: {$error}", null, $this->mailbox['id']);
+            error_log("MailboxMonitor: imap_list() failed: {$error}");
+            throw new Exception("Failed to list mailboxes: {$error}");
+        }
+        
+        $this->eventLogger->log('debug', "imap_list() returned " . (is_array($allMailboxes) ? count($allMailboxes) : 0) . " mailboxes", null, $this->mailbox['id']);
+        error_log("MailboxMonitor: imap_list() returned " . (is_array($allMailboxes) ? count($allMailboxes) : 0) . " mailboxes");
+        
         $actualMailboxPath = null;
         
         // CRITICAL: Get the actual connection string that imap_list uses
@@ -798,6 +825,15 @@ class MailboxMonitor {
     }
 
     private function moveMessage($messageNum, $folder, $useUid = false) {
+        // Store the currently selected mailbox path so we can restore it after moving
+        // This ensures we can properly delete from the source folder
+        $currentMailbox = null;
+        $checkResult = @\imap_check($this->imapConnection);
+        if ($checkResult && isset($checkResult->Mailbox)) {
+            $currentMailbox = $checkResult->Mailbox;
+            $this->eventLogger->log('debug', "Current mailbox context before move: '{$currentMailbox}'", null, $this->mailbox['id']);
+        }
+        
         // Build connection string for folder
         $server = $this->mailbox['imap_server'];
         $port = $this->mailbox['imap_port'];
@@ -901,11 +937,36 @@ class MailboxMonitor {
         }
         
         if ($result) {
-            // Delete from source
-            @\imap_delete($this->imapConnection, $messageNum, $deleteFlags);
-            // Expunge
-            @\imap_expunge($this->imapConnection);
-            $this->eventLogger->log('debug', "Successfully moved message {$messageNum} to folder '{$folder}'", null, $this->mailbox['id']);
+            // Ensure we're still in the source folder (inbox) before deleting
+            // Some IMAP operations might change the selected folder context
+            if ($currentMailbox) {
+                $reopenResult = @\imap_reopen($this->imapConnection, $currentMailbox);
+                if (!$reopenResult) {
+                    $reopenError = \imap_last_error();
+                    $this->eventLogger->log('warning', "Could not reopen source mailbox '{$currentMailbox}' before delete: {$reopenError}", null, $this->mailbox['id']);
+                } else {
+                    $this->eventLogger->log('debug', "Reopened source mailbox '{$currentMailbox}' before delete", null, $this->mailbox['id']);
+                }
+            }
+            
+            // Delete from source (mark for deletion)
+            $deleteResult = @\imap_delete($this->imapConnection, $messageNum, $deleteFlags);
+            
+            if ($deleteResult) {
+                // Expunge to actually remove the deleted message
+                // Expunge must be called while the source folder is selected
+                $expungeResult = @\imap_expunge($this->imapConnection);
+                
+                if ($expungeResult !== false) {
+                    $this->eventLogger->log('info', "Successfully moved message {$messageNum} to folder '{$folder}' (deleted from source and expunged)", null, $this->mailbox['id']);
+                } else {
+                    $expungeError = \imap_last_error();
+                    $this->eventLogger->log('warning', "Message {$messageNum} copied to '{$folder}' and marked for deletion, but expunge failed: {$expungeError}. Message may still appear in inbox until expunge succeeds.", null, $this->mailbox['id']);
+                }
+            } else {
+                $deleteError = \imap_last_error();
+                $this->eventLogger->log('error', "Message {$messageNum} copied to '{$folder}' but delete failed: {$deleteError}. Message exists in both locations!", null, $this->mailbox['id']);
+            }
         } else {
             $error = $lastError ?: \imap_last_error() ?: 'Unknown error';
             $this->eventLogger->log('warning', "Failed to move message {$messageNum} to folder '{$folder}'. Tried paths: " . implode(', ', $pathsToTry) . ". Error: {$error}", null, $this->mailbox['id']);

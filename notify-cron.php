@@ -321,6 +321,7 @@ try {
                         
                         cronLog('info', "Creating MailboxMonitor instance for mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
                         $monitor = new MailboxMonitor($mailboxId);
+                        cronLog('info', "MailboxMonitor instance created successfully", $eventLogger, $userId, $mailboxId);
                         
                         cronLog('info', "Calling processInbox() for mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
                         $result = $monitor->processInbox();
