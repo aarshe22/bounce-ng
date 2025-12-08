@@ -1251,6 +1251,10 @@ async function loadDashboard() {
 // Chart instances
 let smtpTimelineChart = null;
 let domainTimelineChart = null;
+let smtpChartMinDate = null;
+let smtpChartMaxDate = null;
+let domainChartMinDate = null;
+let domainChartMaxDate = null;
 
 // Color palette for charts - distinct colors for maximum legibility
 const chartColors = [
@@ -1308,6 +1312,10 @@ function renderSmtpTimelineChart(timelineData, minDate, maxDate) {
         }
         return;
     }
+
+    // Store date range for zoom reset
+    smtpChartMinDate = minDate;
+    smtpChartMaxDate = maxDate;
 
     // Group data by SMTP code
     const codeData = {};
@@ -1383,15 +1391,18 @@ function renderSmtpTimelineChart(timelineData, minDate, maxDate) {
                 zoom: {
                     zoom: {
                         wheel: {
-                            enabled: true
+                            enabled: false
                         },
                         pinch: {
-                            enabled: true
+                            enabled: false
                         },
-                        mode: 'x'
+                        mode: 'x',
+                        limits: {
+                            x: { min: 'original', max: 'original' }
+                        }
                     },
                     pan: {
-                        enabled: true,
+                        enabled: false,
                         mode: 'x'
                     }
                 }
@@ -1448,6 +1459,10 @@ function renderDomainTimelineChart(timelineData, minDate, maxDate) {
         }
         return;
     }
+
+    // Store date range for zoom reset
+    domainChartMinDate = minDate;
+    domainChartMaxDate = maxDate;
 
     // Group data by domain
     const domainData = {};
@@ -1528,15 +1543,18 @@ function renderDomainTimelineChart(timelineData, minDate, maxDate) {
                 zoom: {
                     zoom: {
                         wheel: {
-                            enabled: true
+                            enabled: false
                         },
                         pinch: {
-                            enabled: true
+                            enabled: false
                         },
-                        mode: 'x'
+                        mode: 'x',
+                        limits: {
+                            x: { min: 'original', max: 'original' }
+                        }
                     },
                     pan: {
-                        enabled: true,
+                        enabled: false,
                         mode: 'x'
                     }
                 }
@@ -1581,6 +1599,100 @@ function renderDomainTimelineChart(timelineData, minDate, maxDate) {
             }
         }
     });
+}
+
+// Zoom functions for SMTP chart
+function zoomSmtpChart(action) {
+    if (!smtpTimelineChart) return;
+
+    const chart = smtpTimelineChart;
+    const xScale = chart.scales.x;
+    const currentMin = xScale.min;
+    const currentMax = xScale.max;
+    const range = currentMax - currentMin;
+    const center = (currentMin + currentMax) / 2;
+
+    if (action === 'in') {
+        // Zoom in by 50%
+        const newRange = range * 0.5;
+        const newMin = center - newRange / 2;
+        const newMax = center + newRange / 2;
+        
+        // Ensure we don't zoom beyond original bounds
+        const finalMin = Math.max(newMin, new Date(smtpChartMinDate).getTime());
+        const finalMax = Math.min(newMax, new Date(smtpChartMaxDate).getTime());
+        
+        xScale.options.min = new Date(finalMin).toISOString();
+        xScale.options.max = new Date(finalMax).toISOString();
+    } else if (action === 'out') {
+        // Zoom out by 100% (double the range)
+        const newRange = range * 2;
+        const newMin = center - newRange / 2;
+        const newMax = center + newRange / 2;
+        
+        // Clamp to original bounds
+        const originalMin = new Date(smtpChartMinDate).getTime();
+        const originalMax = new Date(smtpChartMaxDate).getTime();
+        
+        const finalMin = Math.max(newMin, originalMin);
+        const finalMax = Math.min(newMax, originalMax);
+        
+        xScale.options.min = new Date(finalMin).toISOString();
+        xScale.options.max = new Date(finalMax).toISOString();
+    } else if (action === 'reset') {
+        // Reset to original bounds
+        xScale.options.min = smtpChartMinDate;
+        xScale.options.max = smtpChartMaxDate;
+    }
+
+    chart.update('none');
+}
+
+// Zoom functions for Domain chart
+function zoomDomainChart(action) {
+    if (!domainTimelineChart) return;
+
+    const chart = domainTimelineChart;
+    const xScale = chart.scales.x;
+    const currentMin = xScale.min;
+    const currentMax = xScale.max;
+    const range = currentMax - currentMin;
+    const center = (currentMin + currentMax) / 2;
+
+    if (action === 'in') {
+        // Zoom in by 50%
+        const newRange = range * 0.5;
+        const newMin = center - newRange / 2;
+        const newMax = center + newRange / 2;
+        
+        // Ensure we don't zoom beyond original bounds
+        const finalMin = Math.max(newMin, new Date(domainChartMinDate).getTime());
+        const finalMax = Math.min(newMax, new Date(domainChartMaxDate).getTime());
+        
+        xScale.options.min = new Date(finalMin).toISOString();
+        xScale.options.max = new Date(finalMax).toISOString();
+    } else if (action === 'out') {
+        // Zoom out by 100% (double the range)
+        const newRange = range * 2;
+        const newMin = center - newRange / 2;
+        const newMax = center + newRange / 2;
+        
+        // Clamp to original bounds
+        const originalMin = new Date(domainChartMinDate).getTime();
+        const originalMax = new Date(domainChartMaxDate).getTime();
+        
+        const finalMin = Math.max(newMin, originalMin);
+        const finalMax = Math.min(newMax, originalMax);
+        
+        xScale.options.min = new Date(finalMin).toISOString();
+        xScale.options.max = new Date(finalMax).toISOString();
+    } else if (action === 'reset') {
+        // Reset to original bounds
+        xScale.options.min = domainChartMinDate;
+        xScale.options.max = domainChartMaxDate;
+    }
+
+    chart.update('none');
 }
 
 function displayDashboard(data) {
