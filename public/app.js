@@ -1118,14 +1118,63 @@ function displayDashboard(data) {
             const totalFailures = permanentFailures + temporaryFailures;
             const permanentRate = domain.bounce_count > 0 ? ((permanentFailures / domain.bounce_count) * 100).toFixed(0) : 0;
             
+            // Check if domain is invalid
+            const isInvalid = domain.is_valid === false;
+            const invalidBadge = isInvalid ? '<span class="badge bg-danger me-1" title="Invalid domain"><i class="bi bi-x-circle"></i> Invalid</span>' : '';
+            
+            // Build email addresses display for invalid domains
+            let emailAddressesHtml = '';
+            if (isInvalid) {
+                const toAddresses = domain.associated_to_addresses || [];
+                const ccAddresses = domain.associated_cc_addresses || [];
+                const emailPairs = domain.email_pairs || [];
+                
+                // Collect unique email addresses
+                const allEmails = [...new Set([...toAddresses, ...ccAddresses])];
+                
+                if (allEmails.length > 0 || emailPairs.length > 0) {
+                    emailAddressesHtml = '<div class="mt-2 p-2 bg-danger bg-opacity-25 rounded">';
+                    emailAddressesHtml += '<small class="fw-bold text-warning d-block mb-1"><i class="bi bi-exclamation-triangle"></i> Associated Email Addresses:</small>';
+                    
+                    // Show email pairs (TO:CC) if available
+                    if (emailPairs.length > 0) {
+                        emailAddressesHtml += '<div class="mb-2">';
+                        emailPairs.forEach(pair => {
+                            emailAddressesHtml += `<div class="small text-white-50 mb-1">`;
+                            emailAddressesHtml += `<span class="text-white">TO:</span> ${pair.to}`;
+                            if (pair.cc) {
+                                emailAddressesHtml += ` <span class="text-white ms-2">CC:</span> ${pair.cc}`;
+                            }
+                            emailAddressesHtml += `</div>`;
+                        });
+                        emailAddressesHtml += '</div>';
+                    } else {
+                        // Fallback to showing all addresses
+                        if (toAddresses.length > 0) {
+                            emailAddressesHtml += `<div class="small mb-1"><span class="text-white">TO addresses:</span> ${toAddresses.join(', ')}</div>`;
+                        }
+                        if (ccAddresses.length > 0) {
+                            emailAddressesHtml += `<div class="small mb-1"><span class="text-white">CC addresses:</span> ${ccAddresses.join(', ')}</div>`;
+                        }
+                    }
+                    
+                    emailAddressesHtml += '</div>';
+                }
+            }
+            
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <div class="flex-grow-1">
-                        <div class="fw-bold text-white">${domain.domain}</div>
+                        <div class="fw-bold text-white ${isInvalid ? 'text-danger' : ''}">
+                            ${domain.domain}
+                            ${isInvalid ? '<i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i>' : ''}
+                        </div>
                         <small class="text-white-50">Last bounce: ${lastBounceText}</small>
+                        ${isInvalid ? `<small class="d-block text-warning"><i class="bi bi-info-circle"></i> ${domain.validation_reason || 'Invalid domain'}</small>` : ''}
                     </div>
                     <div class="text-end">
                         <span class="badge bg-secondary me-1" title="Total bounces">${domain.bounce_count}</span>
+                        ${invalidBadge}
                         <span class="badge badge-trust ${trustClass}" title="Trust score (1-10)">${trustScore10}/10</span>
                     </div>
                 </div>
@@ -1134,6 +1183,7 @@ function displayDashboard(data) {
                     ${temporaryFailures > 0 ? `<small class="text-white-50"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
                     ${permanentRate > 50 ? `<small class="text-warning"><i class="bi bi-exclamation-circle"></i> ${permanentRate}% permanent rate</small>` : ''}
                 </div>
+                ${emailAddressesHtml}
             `;
             domainsContainer.appendChild(item);
         });

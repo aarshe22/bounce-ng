@@ -32,6 +32,80 @@ try {
         LIMIT 20
     ");
     $domains = $stmt->fetchAll();
+    
+    // Validate domains and collect associated email addresses
+    require_once __DIR__ . '/../src/DomainValidator.php';
+    foreach ($domains as &$domain) {
+        $validation = \BounceNG\DomainValidator::validateDomain($domain['domain']);
+        $domain['is_valid'] = $validation['valid'];
+        $domain['validation_reason'] = $validation['reason'];
+        
+        // Get all email addresses (TO and CC) associated with this domain
+        $stmt = $db->prepare("
+            SELECT DISTINCT 
+                b.original_to,
+                b.original_cc
+            FROM bounces b
+            WHERE b.recipient_domain = ?
+        ");
+        $stmt->execute([$domain['domain']]);
+        $bounces = $stmt->fetchAll();
+        
+        $toAddresses = [];
+        $ccAddresses = [];
+        $emailPairs = []; // Store TO:CC pairs
+        
+        foreach ($bounces as $bounce) {
+            // Extract TO address
+            $to = trim($bounce['original_to'] ?? '');
+            $toValid = !empty($to) && filter_var($to, FILTER_VALIDATE_EMAIL);
+            
+            // Extract CC addresses (stored as comma-separated string)
+            $ccString = trim($bounce['original_cc'] ?? '');
+            $ccList = [];
+            
+            if (!empty($ccString)) {
+                // Parse comma-separated CC addresses
+                $ccParts = preg_split('/[,\s]+/', $ccString);
+                foreach ($ccParts as $cc) {
+                    $cc = trim($cc);
+                    if (!empty($cc) && filter_var($cc, FILTER_VALIDATE_EMAIL)) {
+                        $ccList[] = $cc;
+                    }
+                }
+            }
+            
+            // For invalid domains, collect all TO:CC pairs where CC matches the domain
+            // This helps admins contact users with typos
+            foreach ($ccList as $cc) {
+                $ccDomain = strtolower(substr(strrchr($cc, "@"), 1));
+                if ($ccDomain === strtolower($domain['domain'])) {
+                    $ccAddresses[] = $cc;
+                    // Store TO:CC pair (TO might be different domain, that's OK)
+                    if ($toValid) {
+                        $emailPairs[] = ['to' => $to, 'cc' => $cc];
+                    }
+                }
+            }
+            
+            // Also collect TO addresses that match the domain
+            if ($toValid) {
+                $toDomain = strtolower(substr(strrchr($to, "@"), 1));
+                if ($toDomain === strtolower($domain['domain'])) {
+                    $toAddresses[] = $to;
+                }
+            }
+        }
+        
+        // Remove duplicates
+        $toAddresses = array_values(array_unique($toAddresses));
+        $ccAddresses = array_values(array_unique($ccAddresses));
+        
+        $domain['associated_to_addresses'] = $toAddresses;
+        $domain['associated_cc_addresses'] = $ccAddresses;
+        $domain['email_pairs'] = $emailPairs; // TO:CC pairs for invalid domains
+    }
+    unset($domain); // Break reference
 
     // Get all SMTP codes with descriptions and additional stats
     $stmt = $db->query("
