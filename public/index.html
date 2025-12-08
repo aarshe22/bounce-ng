@@ -85,30 +85,33 @@
 
                                 <hr>
 
-                                <div class="mb-3">
-                                    <button class="btn btn-primary w-100" onclick="showAddMailboxModal()">
-                                        <i class="bi bi-plus-circle"></i> Add Mailbox
-                                    </button>
-                                </div>
-
-                                <div class="mb-3">
-                                    <button class="btn btn-success w-100" onclick="runProcessing()">
-                                        <i class="bi bi-play-circle"></i> Run Processing
-                                    </button>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <button class="btn btn-warning w-100" onclick="retroactiveQueue()">
-                                        <i class="bi bi-arrow-repeat"></i> Queue Notifications from Existing Bounces
-                                    </button>
-                                    <small class="text-muted d-block mt-1">Processes all existing bounces with CC addresses</small>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <button class="btn btn-danger w-100" onclick="resetDatabase()">
-                                        <i class="bi bi-trash"></i> Reset Database
-                                    </button>
-                                    <small class="text-muted d-block mt-1">Clears all bounces, notifications, and domains (keeps users, relays, mailboxes)</small>
+                                <div class="row g-3 mb-3">
+                                    <div class="col-6 col-md-3">
+                                        <button class="btn btn-primary w-100 control-panel-btn" onclick="showAddMailboxModal()">
+                                            <i class="bi bi-plus-circle"></i>
+                                            <span>Add Mailbox</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <button class="btn btn-success w-100 control-panel-btn" onclick="runProcessing()">
+                                            <i class="bi bi-play-circle"></i>
+                                            <span>Run Processing</span>
+                                        </button>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <button class="btn btn-warning w-100 control-panel-btn" onclick="retroactiveQueue()">
+                                            <i class="bi bi-arrow-repeat"></i>
+                                            <span>Queue Notifications</span>
+                                        </button>
+                                        <small class="text-muted d-block mt-1 control-panel-hint">From existing bounces</small>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <button class="btn btn-danger w-100 control-panel-btn" onclick="resetDatabase()">
+                                            <i class="bi bi-trash"></i>
+                                            <span>Reset Database</span>
+                                        </button>
+                                        <small class="text-muted d-block mt-1 control-panel-hint">Clears all data</small>
+                                    </div>
                                 </div>
 
                                 <hr>
