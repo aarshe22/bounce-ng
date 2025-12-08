@@ -35,6 +35,9 @@
                         <button type="button" class="btn btn-sm btn-outline-light" id="viewControlsBtn" onclick="switchView('controls')">
                             <i class="bi bi-gear"></i> <span class="d-none d-md-inline">Control Panel</span>
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewBadAddressesBtn" onclick="switchView('badAddresses')">
+                            <i class="bi bi-exclamation-triangle"></i> <span class="d-none d-md-inline">Bad Addresses</span>
+                        </button>
                     </div>
                     <div class="d-flex align-items-center flex-wrap gap-2 mb-2 mb-lg-0">
                         <button class="btn btn-sm btn-outline-light" id="runCronBtn" onclick="runCron()" title="Run Cron Script">
@@ -367,6 +370,25 @@
                         <button class="btn btn-sm btn-outline-secondary" id="eventLogNextBtn" onclick="eventLogNextPage()" disabled>
                             Next <i class="bi bi-chevron-right"></i>
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bad Addresses View -->
+        <div id="viewBadAddresses" class="view-container" style="display: none;">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Bad Addresses</h5>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadBadAddresses()" title="Refresh">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body overflow-auto">
+                    <div id="badAddressesList">
+                        <p class="text-muted text-center">Loading bad addresses...</p>
                     </div>
                 </div>
             </div>

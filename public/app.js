@@ -100,7 +100,7 @@ function switchView(viewName) {
     });
     
     // Remove active class from all buttons
-    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn, #viewNotificationsBtn').forEach(btn => {
+    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn, #viewNotificationsBtn, #viewBadAddressesBtn').forEach(btn => {
         btn.classList.remove('active');
     });
     
@@ -135,6 +135,10 @@ function switchView(viewName) {
             calculateEventLogPageSize();
             displayEventLogPage(); // Refresh display with new page size
         }, 100);
+    } else if (viewName === 'badAddresses') {
+        document.getElementById('viewBadAddresses').style.display = 'block';
+        document.getElementById('viewBadAddressesBtn').classList.add('active');
+        loadBadAddresses();
     }
 }
 
@@ -2751,6 +2755,103 @@ function showHelp() {
     
     const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
     helpModal.show();
+}
+
+// Bad Addresses
+async function loadBadAddresses() {
+    const container = document.getElementById('badAddressesList');
+    if (!container) return;
+    
+    try {
+        container.innerHTML = '<p class="text-muted text-center"><span class="spinner-border spinner-border-sm me-2"></span>Loading bad addresses...</p>';
+        
+        const response = await fetch('/api/bad-addresses.php');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            displayBadAddresses(data.data || [], data.total || 0);
+        } else {
+            throw new Error(data.error || 'Failed to load bad addresses');
+        }
+    } catch (error) {
+        console.error('Error loading bad addresses:', error);
+        container.innerHTML = `<div class="alert alert-danger">Error loading bad addresses: ${error.message}</div>`;
+    }
+}
+
+function displayBadAddresses(addresses, total) {
+    const container = document.getElementById('badAddressesList');
+    if (!container) return;
+    
+    if (addresses.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">No bad addresses found</p>';
+        return;
+    }
+    
+    let html = `
+        <div class="mb-3">
+            <p class="text-muted mb-0"><strong>Total:</strong> ${total} unique email address${total !== 1 ? 'es' : ''} with bounces</p>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover table-striped">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">#</th>
+                        <th style="width: 40%;">Email Address</th>
+                        <th style="width: 10%;" class="text-center">Bounce Count</th>
+                        <th style="width: 15%;">First Bounce</th>
+                        <th style="width: 15%;">Last Bounce</th>
+                        <th style="width: 15%;">SMTP Codes</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    addresses.forEach((address, index) => {
+        const firstBounce = address.first_bounce ? new Date(address.first_bounce).toLocaleDateString() : 'N/A';
+        const lastBounce = address.last_bounce ? new Date(address.last_bounce).toLocaleDateString() : 'N/A';
+        const smtpCodes = Array.isArray(address.smtp_codes) && address.smtp_codes.length > 0
+            ? address.smtp_codes.filter(code => code && code.trim() !== '').join(', ')
+            : 'N/A';
+        
+        // Color code based on bounce count
+        let bounceCountClass = '';
+        if (address.bounce_count >= 10) {
+            bounceCountClass = 'text-danger fw-bold';
+        } else if (address.bounce_count >= 5) {
+            bounceCountClass = 'text-warning fw-bold';
+        } else {
+            bounceCountClass = 'text-info';
+        }
+        
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td><code>${escapeHtml(address.original_to)}</code></td>
+                <td class="text-center ${bounceCountClass}">${address.bounce_count}</td>
+                <td>${firstBounce}</td>
+                <td>${lastBounce}</td>
+                <td><small>${escapeHtml(smtpCodes)}</small></td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Run Cron Script
