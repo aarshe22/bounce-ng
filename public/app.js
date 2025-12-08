@@ -1,6 +1,7 @@
 // Global state
 let currentMailboxId = null;
 let eventPollInterval = null;
+let userIsAdmin = false; // Will be set from session
 
 // Event log pagination state
 let eventLogCurrentPage = 1;
@@ -308,11 +309,79 @@ document.getElementById('themeIcon').className = savedTheme === 'light' ? 'bi bi
 
 // User info
 function loadUserInfo() {
-    // User info should be in session, but we'll get it from API if needed
+    // Get user info from session (injected in index.php)
     const userName = document.getElementById('userName');
     if (userName) {
-        userName.textContent = 'User'; // Will be set from session
+        // Check if admin status is in data attribute
+        const isAdminAttr = userName.getAttribute('data-is-admin');
+        if (isAdminAttr !== null) {
+            userIsAdmin = isAdminAttr === '1';
+        }
+        
+        // Update UI based on admin status
+        updateUIForAdminStatus();
     }
+    
+    // Also check session on page load
+    // The userName element should already have the name from index.php
+}
+
+function updateUIForAdminStatus() {
+    // Hide/disable write operation buttons for non-admin users
+    const writeButtons = [
+        { selector: 'button[onclick="runProcessing()"]', tooltip: 'Admin only: Run Processing' },
+        { selector: 'button[onclick="resetDatabase()"]', tooltip: 'Admin only: Reset Database' },
+        { selector: 'button[onclick="deduplicateNotifications()"]', tooltip: 'Admin only: Deduplicate' },
+        { selector: '#runCronBtn', tooltip: 'Admin only: Run Cron' },
+        { selector: 'button[onclick="sendSelectedNotifications()"]', tooltip: 'Admin only: Send Notifications' },
+        { selector: 'button[onclick="retroactiveQueue()"]', tooltip: 'Admin only: Retroactive Queue' }
+    ];
+    
+    writeButtons.forEach(btn => {
+        const elements = document.querySelectorAll(btn.selector);
+        elements.forEach(el => {
+            if (!userIsAdmin) {
+                el.disabled = true;
+                el.style.opacity = '0.5';
+                el.style.cursor = 'not-allowed';
+                if (btn.tooltip) {
+                    el.title = btn.tooltip;
+                }
+            } else {
+                el.disabled = false;
+                el.style.opacity = '1';
+                el.style.cursor = 'pointer';
+                el.title = '';
+            }
+        });
+    });
+    
+    // Also hide admin-only sections
+    const adminSections = [
+        'button[onclick="showAddMailboxModal()"]',
+        'button[onclick="showAddRelayProviderModal()"]',
+        '#testModeToggle',
+        '#notificationModeToggle',
+        'button[onclick="saveTestModeSettings()"]',
+        'button[onclick="saveNotificationTemplate()"]',
+        'button[onclick="backupConfig()"]',
+        'button[onclick="restoreConfig()"]'
+    ];
+    
+    adminSections.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (!userIsAdmin) {
+                el.disabled = true;
+                el.style.opacity = '0.5';
+                el.style.cursor = 'not-allowed';
+            } else {
+                el.disabled = false;
+                el.style.opacity = '1';
+                el.style.cursor = 'pointer';
+            }
+        });
+    });
 }
 
 // Settings
@@ -840,6 +909,11 @@ async function deleteMailbox(id) {
 }
 
 async function runProcessing() {
+    if (!userIsAdmin) {
+        alert('Only administrators can run processing.');
+        return;
+    }
+    
     const runBtn = document.querySelector('button[onclick="runProcessing()"]');
     const originalText = runBtn ? runBtn.innerHTML : '';
     
@@ -958,6 +1032,11 @@ function addEventLogMessage(severity, message) {
 
 // Reset database - clears all data except users, relays, and mailboxes
 async function resetDatabase() {
+    if (!userIsAdmin) {
+        alert('Only administrators can reset the database.');
+        return;
+    }
+    
     if (!confirm('Are you sure you want to reset the database? This will delete ALL bounces, notifications, domains, and events. Users, relay providers, and mailbox configurations will be preserved.')) {
         return;
     }
@@ -1013,6 +1092,11 @@ async function resetDatabase() {
 
 // Retroactively queue notifications from existing bounces
 async function retroactiveQueue() {
+    if (!userIsAdmin) {
+        alert('Only administrators can queue notifications from existing bounces.');
+        return;
+    }
+    
     const btn = document.querySelector('button[onclick="retroactiveQueue()"]');
     const originalText = btn ? btn.innerHTML : '';
     
@@ -1667,6 +1751,11 @@ function deselectAllNotifications() {
 }
 
 async function sendSelectedNotifications() {
+    if (!userIsAdmin) {
+        alert('Only administrators can send notifications.');
+        return;
+    }
+    
     const selected = Array.from(document.querySelectorAll('.notification-checkbox:checked')).map(cb => parseInt(cb.value));
     if (selected.length === 0) {
         alert('Please select at least one notification');
@@ -1694,6 +1783,11 @@ async function sendSelectedNotifications() {
 
 // Deduplicate notifications
 async function deduplicateNotifications() {
+    if (!userIsAdmin) {
+        alert('Only administrators can deduplicate notifications.');
+        return;
+    }
+    
     if (!confirm('This will remove duplicate notifications (same CC recipient + TO address pair), keeping only the newest one for each pair. Continue?')) {
         return;
     }
@@ -1805,6 +1899,11 @@ async function deleteUser(id) {
 
 // Run Cron Script
 async function runCron() {
+    if (!userIsAdmin) {
+        alert('Only administrators can run the cron script.');
+        return;
+    }
+    
     const runCronBtn = document.getElementById('runCronBtn');
     const originalText = runCronBtn ? runCronBtn.innerHTML : '';
     

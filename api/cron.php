@@ -23,6 +23,7 @@ try {
     $eventLogger->log('debug', "[DEBUG] api/cron.php: Method={$method}, Action={$path}", $userId);
     
     $auth->requireAuth();
+    $auth->requireAdmin(); // Only admins can run cron
     $eventLogger->log('debug', '[DEBUG] api/cron.php: Authentication passed', $userId);
 
     if ($method === 'POST' && $path === 'run') {

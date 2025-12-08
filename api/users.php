@@ -44,6 +44,11 @@ try {
                     $data['id']
                 ]);
                 
+                // If updating own admin status, update session
+                if ($data['id'] == $_SESSION['user_id']) {
+                    $_SESSION['is_admin'] = ($data['is_admin'] ?? 0) ? 1 : 0;
+                }
+                
                 $eventLogger = new EventLogger();
                 $eventLogger->log('info', "User updated: ID {$data['id']}", $_SESSION['user_id']);
                 

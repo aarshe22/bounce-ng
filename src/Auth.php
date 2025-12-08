@@ -80,9 +80,10 @@ class Auth {
         }
 
         // Check if this is the first user (make them admin)
+        // All subsequent users are read-only by default until approved by an admin
         $stmt = $this->db->query("SELECT COUNT(*) as count FROM users");
         $result = $stmt->fetch();
-        $isAdmin = $result['count'] == 0 ? 1 : 0;
+        $isAdmin = $result['count'] == 0 ? 1 : 0; // Only first user gets admin automatically
 
         // Create new user
         $stmt = $this->db->prepare("

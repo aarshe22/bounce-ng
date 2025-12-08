@@ -111,6 +111,9 @@ try {
                 
                 echo json_encode(['success' => true, 'id' => $mailboxId]);
             } elseif ($path === 'retroactive-queue') {
+                // Only admins can queue notifications retroactively
+                $auth->requireAdmin();
+                
                 header('Content-Type: application/json');
                 // First, check how many bounces exist and how many have CC addresses
                 $checkStmt = $db->query("
@@ -236,6 +239,8 @@ try {
                     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
             } elseif ($path === 'process') {
+                // Only admins can run processing
+                $auth->requireAdmin();
                 // Process mailboxes directly (synchronous) - restore original functionality
                 header('Content-Type: application/json');
                 

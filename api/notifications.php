@@ -40,6 +40,9 @@ try {
         case 'POST':
             $data = json_decode(file_get_contents('php://input'), true);
             if ($path === 'send' && isset($data['ids'])) {
+                // Only admins can send notifications
+                $auth->requireAdmin();
+                
                 // Send specific notification IDs (selected notifications)
                 $ids = $data['ids'];
                 if (!is_array($ids)) {
@@ -74,6 +77,9 @@ try {
 
                 echo json_encode(['success' => true, 'data' => $results]);
             } elseif ($path === 'send-all') {
+                // Only admins can send notifications
+                $auth->requireAdmin();
+                
                 // Send all pending notifications directly (synchronous) - restore original functionality
                 header('Content-Type: application/json');
                 
