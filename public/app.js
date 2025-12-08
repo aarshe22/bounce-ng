@@ -1245,14 +1245,14 @@ function displayDashboard(data) {
         if (domains.length > 0) {
             domainsHtml = '<div class="smtp-domains-list" style="display: none;">';
             domainsHtml += '<div class="p-2 pt-0 mt-2 border-top border-white border-opacity-25">';
-            domainsHtml += '<small class="text-white-50 d-block mb-2"><i class="bi bi-globe"></i> Affected Domains:</small>';
+            domainsHtml += '<small class="text-dark d-block mb-2"><i class="bi bi-globe"></i> Affected Domains:</small>';
             domains.forEach(domain => {
                 const lastBounce = domain.last_bounce ? new Date(domain.last_bounce).toLocaleDateString() : 'N/A';
                 domainsHtml += `
                     <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
-                        <span class="text-white fw-bold">${domain.recipient_domain}</span>
-                        <span class="text-white-50 ms-2">(${domain.bounce_count} bounce${domain.bounce_count !== 1 ? 's' : ''})</span>
-                        <span class="text-white-50 ms-2">Last: ${lastBounce}</span>
+                        <span class="text-dark fw-bold">${domain.recipient_domain}</span>
+                        <span class="text-dark ms-2">(${domain.bounce_count} bounce${domain.bounce_count !== 1 ? 's' : ''})</span>
+                        <span class="text-dark ms-2">Last: ${lastBounce}</span>
                     </div>
                 `;
             });
