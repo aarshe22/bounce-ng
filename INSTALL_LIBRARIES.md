@@ -1,20 +1,25 @@
 # Installing Required Libraries
 
-To use the improved IMAP and MIME parsing, you need to install the following Composer packages:
+**Note**: The libraries `webklex/php-imap` and `zbateson/mail-mime-parser` are listed in `composer.json` but are **not currently used** in the codebase. The application uses PHP's built-in `ext-imap` extension instead.
 
-```bash
-composer require webklex/php-imap zbateson/mail-mime-parser
-```
+## Current Implementation
 
-Or if composer is not in your PATH:
+Bounce Monitor uses:
+- **PHP ext-imap**: Built-in IMAP extension for mailbox access (primary email parsing)
+- **PHP ext-mbstring**: Built-in multi-byte string handling for email parsing
+- **PHPMailer**: For sending notifications (installed via Composer)
+- **OAuth2 Libraries**: For Google and Microsoft authentication
 
-```bash
-php composer.phar require webklex/php-imap zbateson/mail-mime-parser
-```
+## Required PHP Extensions
 
-These libraries provide:
-- **webklex/php-imap**: Robust IMAP connection handling, better folder support, and reliable message fetching
-- **zbateson/mail-mime-parser**: Comprehensive MIME parsing with full support for all encodings, nested parts, and embedded messages
+Ensure the following PHP extensions are installed:
+- `ext-imap` - For IMAP mailbox access
+- `ext-pdo` - For SQLite database
+- `ext-pdo_sqlite` - SQLite driver
+- `ext-json` - For JSON handling
+- `ext-mbstring` - For multi-byte string handling
+- `ext-curl` - For OAuth and DNS lookups (optional but recommended)
+- `ext-openssl` - For SSL/TLS connections
 
-After installation, the application will automatically use these libraries for better email parsing and CC extraction.
+See the main README.md for complete installation instructions.
 

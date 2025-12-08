@@ -2474,7 +2474,23 @@ function showHelp() {
             <ul>
                 <li><strong>Total Bounces</strong>: Total number of bounce messages processed</li>
                 <li><strong>Queued Notifications</strong>: Number of pending notifications waiting to be sent</li>
+                <li><strong>Domains</strong>: Total number of unique recipient domains</li>
+                <li><strong>Mailboxes</strong>: Number of active mailboxes being monitored</li>
             </ul>
+            
+            <h6>Timeline Charts</h6>
+            <p>The Dashboard includes two interactive timeline charts:</p>
+            <ul>
+                <li><strong>SMTP Codes Timeline</strong>: Shows daily bounce counts grouped by SMTP error code over time. Each SMTP code is displayed with a distinct color.</li>
+                <li><strong>Domains Timeline</strong>: Shows daily bounce counts for the top 15 domains by bounce volume. Each domain is displayed with a distinct color.</li>
+            </ul>
+            <p><strong>Chart Controls</strong>:</p>
+            <ul>
+                <li><strong>Zoom In</strong>: Reduce the date range by 50% to focus on a specific time period</li>
+                <li><strong>Zoom Out</strong>: Expand the date range by 100% to see more data</li>
+                <li><strong>Reset</strong>: Restore the chart to show the full date range (from oldest to newest bounce)</li>
+            </ul>
+            <p>Charts automatically scale to show all available data by default. Use the zoom controls to focus on specific time periods.</p>
             
             <h6>Domains Panel</h6>
             <p>Shows all recipient domains that have received bounces:</p>
@@ -2556,6 +2572,7 @@ function showHelp() {
                 <li><strong>Test Mode</strong>: When enabled, all notifications go to override email instead of original recipients</li>
                 <li><strong>Override Email</strong>: Email address to receive test notifications</li>
                 <li><strong>Real-time Notifications</strong>: When enabled, notifications are sent immediately after processing. When disabled, notifications are queued for manual sending</li>
+                <li><strong>BCC Monitoring</strong>: When enabled, all outbound notifications (in production mode) will be BCC'd to the specified email addresses. This allows monitoring of notification delivery without affecting the original recipients. Supports multiple comma-separated email addresses.</li>
             </ul>
             
             <h6>Mailbox Management</h6>

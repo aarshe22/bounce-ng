@@ -35,7 +35,9 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
 - **Queue Management**: Real-time or queued notification delivery modes
 - **User Management**: Role-based access control with admin and read-only users
 - **Event Logging**: Comprehensive activity and error logging
-- **Dashboard Analytics**: Real-time statistics and visualizations
+- **Dashboard Analytics**: Real-time statistics, interactive timeline charts, and visualizations
+- **BCC Monitoring**: Monitor outbound notifications via BCC in production mode
+- **Interactive Charts**: Button-based zoom controls for timeline visualizations
 
 ## Features
 
@@ -88,8 +90,10 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Customizable email templates with placeholders
   - Real-time or queued delivery modes
   - Test mode with override email address
-  - Deduplication of duplicate notifications
+  - BCC monitoring for production notification tracking
+  - Deduplication of duplicate notifications (based on CC+TO address pairs)
   - Support for multiple SMTP relay providers
+  - Maximum deliverability formatting to avoid spam filters
 
 - **User Management**
   - OAuth 2.0 authentication (Google, Microsoft)
@@ -102,9 +106,10 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Real-time statistics (total bounces, domains, mailboxes, queued notifications)
   - Domain panel with trust scores and bounce history
   - SMTP code panel with affected domains
+  - Interactive timeline charts (SMTP codes and domains) with button-based zoom controls
   - Notification queue with filtering and sorting
   - Event log with pagination and filtering
-  - Accordion-style detail views
+  - Accordion-style detail views for domains and SMTP codes
 
 - **Event Logging**
   - Comprehensive activity logging
@@ -322,6 +327,7 @@ Customize the bounce notification email template with placeholders:
 - **Test Mode Override Email**: Email address for test mode notifications
 - **Real-time Notifications**: When enabled, notifications are sent immediately after processing
 - **Queue Mode**: When disabled, notifications are queued for manual sending
+- **BCC Monitoring**: When enabled, all outbound notifications (in production mode) are BCC'd to specified email addresses. Supports multiple comma-separated addresses. Useful for monitoring notification delivery without affecting original recipients.
 
 ## Usage Guide
 
@@ -402,16 +408,23 @@ Or use the **"RUN CRON"** button in the header for manual execution.
 
 The dashboard provides:
 
-- **Statistics**: Total bounces, domains, active mailboxes, queued notifications
+- **Statistics Header**: Total bounces, queued notifications, domains, and active mailboxes
+- **Timeline Charts**:
+  - **SMTP Codes Timeline**: Interactive chart showing daily bounce counts by SMTP error code over time
+  - **Domains Timeline**: Interactive chart showing daily bounce counts for top 15 domains
+  - Button-based zoom controls (Zoom In, Zoom Out, Reset)
+  - Automatically scales to show full date range
+  - Distinct colors for each SMTP code/domain
 - **Domains Panel**: 
   - List of all recipient domains
   - Trust scores (1-10)
   - Bounce counts and failure types
-  - Click domain to expand details (recent bounces, SMTP codes, timeline)
+  - Invalid domain identification with associated email addresses
+  - Click domain to expand details (recent bounces, SMTP codes, 30-day timeline)
 - **SMTP Codes Panel**:
   - List of all SMTP error codes
   - Occurrence counts and affected domains
-  - Click code to expand and see affected domains
+  - Click code to expand and see affected domains with bounce counts
 - **Notification Queue**: Pending notifications with filtering and sorting
 
 ### Event Log
@@ -605,7 +618,7 @@ All API endpoints require authentication via session. Admin-only endpoints requi
 - **GET** `?action=queue&status={status}`: Get notification queue
 - **POST** `?action=send`: Send selected notifications (admin)
 - **POST** `?action=send-all`: Send all pending notifications (admin)
-- **POST** `?action=deduplicate`: Deduplicate notifications (admin)
+- **POST** `?action=deduplicate`: Deduplicate notifications based on CC+TO address pairs, keeping newest (admin)
 
 #### `/api/events.php`
 - **GET**: Get event log (paginated)
@@ -846,4 +859,4 @@ For issues, questions, or contributions:
 ---
 
 **Version**: 1.0.0  
-**Last Updated**: 2024
+**Last Updated**: December 2024

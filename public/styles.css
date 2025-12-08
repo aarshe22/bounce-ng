@@ -138,6 +138,47 @@ body {
     font-weight: 500;
 }
 
+/* Ensure header badge text is readable in both themes */
+#headerStats .badge.bg-info {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+}
+
+[data-theme="dark"] #headerStats .badge.bg-info {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+}
+
+#headerStats .badge.bg-warning {
+    background-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+[data-theme="dark"] #headerStats .badge.bg-warning {
+    background-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+#headerStats .badge.bg-secondary {
+    background-color: #6c757d !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] #headerStats .badge.bg-secondary {
+    background-color: #6c757d !important;
+    color: #fff !important;
+}
+
+#headerStats .badge.bg-success {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] #headerStats .badge.bg-success {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
 @media (max-width: 991px) {
     #headerStats {
         width: 100%;
