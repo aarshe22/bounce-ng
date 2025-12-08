@@ -20,6 +20,17 @@
         "psr-4": {
             "BounceNG\\": "src/"
         }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "@setup"
+        ],
+        "post-update-cmd": [
+            "@setup"
+        ],
+        "setup": [
+            "php scripts/setup.php"
+        ]
     }
 }
 

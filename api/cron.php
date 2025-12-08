@@ -72,12 +72,27 @@ try {
         // Use absolute path and ensure we're in the right directory
         $cronScript = realpath($cronScript);
         $workingDir = dirname($cronScript);
+        
+        // Use data directory for log file (should be writable)
+        $dataDir = $workingDir . '/data';
+        if (!is_dir($dataDir)) {
+            @mkdir($dataDir, 0755, true);
+        }
+        $logFile = $dataDir . '/notify-cron.log';
+        
+        // Ensure log file is writable, create if doesn't exist
+        if (!file_exists($logFile)) {
+            @touch($logFile);
+            @chmod($logFile, 0644);
+        }
+        
         $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' 2>&1';
         
         // Log the command for debugging
         error_log("Executing cron command: {$command} in directory: {$workingDir}");
         $eventLogger->log('debug', "[DEBUG] api/cron.php: Command: {$command}", $userId);
         $eventLogger->log('debug', "[DEBUG] api/cron.php: Working directory: {$workingDir}", $userId);
+        $eventLogger->log('debug', "[DEBUG] api/cron.php: Log file: {$logFile}", $userId);
         
         // Execute in background (non-blocking)
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
@@ -85,23 +100,27 @@ try {
             $handle = popen("start /B " . $command, "r");
             if ($handle === false) {
                 error_log("Failed to start cron script on Windows");
+                $eventLogger->log('error', "[DEBUG] api/cron.php: Failed to start cron script on Windows", $userId);
             } else {
                 pclose($handle);
+                $eventLogger->log('info', "[DEBUG] api/cron.php: Cron script started successfully (Windows)", $userId);
             }
         } else {
             // Unix/Linux - use nohup to ensure it continues after parent exits
             // Change to script directory and execute
             // Use full path to nohup if available, otherwise just run in background
             $nohupPath = trim(shell_exec('which nohup 2>/dev/null') ?: 'nohup');
-            $fullCommand = "cd " . escapeshellarg($workingDir) . " && " . escapeshellarg($nohupPath) . " " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 & echo $!";
+            
+            // Try with nohup first, redirecting to data directory log file
+            $fullCommand = "cd " . escapeshellarg($workingDir) . " && " . escapeshellarg($nohupPath) . " " . $command . " >> " . escapeshellarg($logFile) . " 2>&1 & echo $!";
             
             $pid = trim(shell_exec($fullCommand));
             $eventLogger->log('debug', "[DEBUG] api/cron.php: Shell exec returned PID: '{$pid}'", $userId);
             
             if (empty($pid) || !is_numeric($pid)) {
                 $eventLogger->log('warning', "[DEBUG] api/cron.php: PID not numeric, trying fallback method", $userId);
-                // Fallback: try without nohup
-                $fallbackCommand = "cd " . escapeshellarg($workingDir) . " && " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 &";
+                // Fallback: try without nohup, but still use data directory for log
+                $fallbackCommand = "cd " . escapeshellarg($workingDir) . " && " . $command . " >> " . escapeshellarg($logFile) . " 2>&1 &";
                 $eventLogger->log('debug', "[DEBUG] api/cron.php: Fallback command: {$fallbackCommand}", $userId);
                 exec($fallbackCommand, $output, $returnVar);
                 
@@ -127,12 +146,13 @@ try {
                 } else {
                     $eventLogger->log('warning', "[DEBUG] api/cron.php: Process {$pid} not found - may have exited immediately", $userId);
                     // Check the log file for errors
-                    $logFile = $workingDir . '/notify-cron.log';
-                    if (file_exists($logFile)) {
+                    if (file_exists($logFile) && is_readable($logFile)) {
                         $lastLines = trim(shell_exec("tail -20 " . escapeshellarg($logFile) . " 2>/dev/null"));
                         if ($lastLines) {
                             $eventLogger->log('error', "[DEBUG] api/cron.php: Last log entries: " . substr($lastLines, 0, 500), $userId);
                         }
+                    } else {
+                        $eventLogger->log('warning', "[DEBUG] api/cron.php: Log file not readable: {$logFile}", $userId);
                     }
                 }
             }

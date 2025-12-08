@@ -180,6 +180,12 @@ cd bounce-ng
 composer install
 ```
 
+**Note**: The `composer install` command automatically runs a setup script that:
+- Creates the `data/` directory if it doesn't exist
+- Sets proper permissions (755) on the `data/` directory
+- Creates a `.gitkeep` file to ensure the directory is tracked in git
+- Provides helpful next-step instructions
+
 ### Step 3: Configure Environment
 
 ```bash
@@ -227,12 +233,20 @@ MICROSOFT_REDIRECT_URI=http://localhost:8000/oauth-callback.php?provider=microso
 7. After creation, go to "Certificates & secrets" → "New client secret"
 8. Copy Application (client) ID and Client secret to `.env`
 
-### Step 5: Set Up Directory Permissions
+### Step 5: Verify Directory Permissions
+
+The setup script (run automatically by composer) creates the `data/` directory with proper permissions. However, you may need to adjust permissions based on your web server user:
 
 ```bash
-mkdir -p data
+# If needed, adjust permissions for your web server user
 chmod 755 data
+chown www-data:www-data data  # Adjust user/group for your system
 ```
+
+**Note**: The `data/` directory must be writable by the web server user for:
+- Database file creation and updates
+- Log file creation (`notify-cron.log`)
+- Other runtime files
 
 ### Step 6: Start Application
 

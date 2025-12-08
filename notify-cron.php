@@ -31,8 +31,12 @@ use BounceNG\EventLogger;
 // Determine if running from CLI or web
 $isCli = php_sapi_name() === 'cli';
 
-// Log file path
-$logFile = __DIR__ . '/notify-cron.log';
+// Log file path - use data directory (should be writable)
+$dataDir = __DIR__ . '/data';
+if (!is_dir($dataDir)) {
+    @mkdir($dataDir, 0755, true);
+}
+$logFile = $dataDir . '/notify-cron.log';
 
 // Function to log to both file and event log
 function cronLog($level, $message, $eventLogger = null, $userId = null, $mailboxId = null) {

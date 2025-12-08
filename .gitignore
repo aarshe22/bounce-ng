@@ -6,4 +6,8 @@
 .htaccess.local
 node_modules/
 .DS_Store
+data/*.db
+data/*.db-journal
+data/*.log
+!data/.gitkeep
 
