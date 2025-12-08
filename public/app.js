@@ -495,6 +495,7 @@ async function saveBccMonitoringSettings() {
             body: JSON.stringify({ key: 'bcc_monitoring_emails', value: emails })
         });
 
+        alert('Settings saved');
         addEventLogMessage('success', 'BCC monitoring settings saved');
     } catch (error) {
         console.error('Error saving BCC monitoring settings:', error);
@@ -503,12 +504,30 @@ async function saveBccMonitoringSettings() {
     }
 }
 
-document.getElementById('notificationModeToggle').addEventListener('change', function() {
-    fetch('/api/settings.php?action=set', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'notification_mode', value: this.checked ? 'realtime' : 'queue' })
-    });
+document.getElementById('notificationModeToggle').addEventListener('change', async function() {
+    const isRealtime = this.checked;
+    const mode = isRealtime ? 'realtime' : 'queue';
+    
+    try {
+        const response = await fetch('/api/settings.php?action=set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'notification_mode', value: mode })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            alert('Settings saved');
+            addEventLogMessage('success', `Notification mode changed to: ${mode}`);
+        } else {
+            throw new Error(data.error || 'Failed to save settings');
+        }
+    } catch (error) {
+        console.error('Error saving notification mode:', error);
+        alert('Error saving settings: ' + error.message);
+        // Revert the toggle
+        this.checked = !isRealtime;
+    }
 });
 
 // Notification Template
@@ -782,6 +801,8 @@ async function saveRelayProvider() {
         
         const result = await response.json();
         if (result.success) {
+            alert('Relay provider saved successfully');
+            addEventLogMessage('success', `Relay provider ${data.id ? 'updated' : 'created'} successfully`);
             bootstrap.Modal.getInstance(document.getElementById('relayProviderModal')).hide();
             loadRelayProviders();
         } else {
@@ -801,6 +822,8 @@ async function deleteRelayProvider(id) {
         const response = await fetch(`/api/relay-providers.php?action=delete&id=${id}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
+            alert('Relay provider deleted successfully');
+            addEventLogMessage('success', 'Relay provider deleted successfully');
             loadRelayProviders();
         } else {
             alert('Error: ' + data.error);
@@ -950,6 +973,8 @@ async function saveMailbox() {
         
         const result = await response.json();
         if (result.success) {
+            alert('Mailbox saved successfully');
+            addEventLogMessage('success', `Mailbox ${data.id ? 'updated' : 'created'} successfully`);
             bootstrap.Modal.getInstance(document.getElementById('mailboxModal')).hide();
             loadMailboxes();
         } else {
@@ -969,6 +994,8 @@ async function deleteMailbox(id) {
         const response = await fetch(`/api/mailboxes.php?action=delete&id=${id}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
+            alert('Mailbox deleted successfully');
+            addEventLogMessage('success', 'Mailbox deleted successfully');
             loadMailboxes();
         } else {
             alert('Error: ' + data.error);
@@ -2285,8 +2312,11 @@ async function updateUser(id, field, value) {
             body: JSON.stringify(data)
         });
         const result = await response.json();
-        if (!result.success) {
-            alert('Error updating user');
+        if (result.success) {
+            alert('User updated successfully');
+            addEventLogMessage('success', `User ${field} updated successfully`);
+        } else {
+            alert('Error updating user: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         alert('Error updating user: ' + error.message);
@@ -2302,6 +2332,8 @@ async function deleteUser(id) {
         const response = await fetch(`/api/users.php?action=delete&id=${id}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
+            alert('User deleted successfully');
+            addEventLogMessage('success', 'User deleted successfully');
             document.getElementById('userManagementBtn').click(); // Reload
         } else {
             alert('Error: ' + data.error);
@@ -2710,6 +2742,7 @@ async function backupConfig() {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
         
+        alert('Configuration backup downloaded successfully');
         addEventLogMessage('success', 'Configuration backup downloaded successfully');
     } catch (error) {
         console.error('Error backing up configuration:', error);
