@@ -88,6 +88,21 @@
 
                                 <div class="mb-3">
                                     <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="bccMonitoringToggle">
+                                        <label class="form-check-label" for="bccMonitoringToggle">BCC Monitoring Emails</label>
+                                    </div>
+                                    <small class="text-muted">When enabled, always BCC these addresses on all notifications (production monitoring)</small>
+                                </div>
+
+                                <div class="mb-3" id="bccMonitoringEmails" style="display: none;">
+                                    <label class="form-label">BCC Email Addresses</label>
+                                    <input type="text" class="form-control" id="bccMonitoringEmailsInput" placeholder="monitor1@example.com, monitor2@example.com">
+                                    <small class="text-muted">Comma-separated email addresses to always BCC on notifications</small>
+                                    <button class="btn btn-sm btn-primary mt-2" onclick="saveBccMonitoringSettings()">Save</button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="notificationModeToggle">
                                         <label class="form-check-label" for="notificationModeToggle">Real-time Notifications</label>
                                     </div>

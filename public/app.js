@@ -81,6 +81,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Poll dashboard every 10 seconds
     setInterval(loadDashboard, 10000);
     setInterval(loadNotificationQueue, 5000);
+    
+    // Set up BCC monitoring toggle event listener
+    const bccMonitoringToggle = document.getElementById('bccMonitoringToggle');
+    if (bccMonitoringToggle) {
+        bccMonitoringToggle.addEventListener('change', function() {
+            document.getElementById('bccMonitoringEmails').style.display = this.checked ? 'block' : 'none';
+            saveBccMonitoringSettings();
+        });
+    }
 });
 
 // View switching functions
@@ -413,6 +422,14 @@ async function loadSettings() {
             if (settings.test_mode === '1') {
                 document.getElementById('testModeOverride').style.display = 'block';
             }
+
+            // Load BCC monitoring settings
+            document.getElementById('bccMonitoringToggle').checked = settings.bcc_monitoring_enabled === '1';
+            document.getElementById('bccMonitoringEmailsInput').value = settings.bcc_monitoring_emails || '';
+
+            if (settings.bcc_monitoring_enabled === '1') {
+                document.getElementById('bccMonitoringEmails').style.display = 'block';
+            }
         }
     } catch (error) {
         console.error('Error loading settings:', error);
@@ -447,6 +464,44 @@ document.getElementById('testModeToggle').addEventListener('change', function() 
     document.getElementById('testModeOverride').style.display = this.checked ? 'block' : 'none';
     saveTestModeSettings();
 });
+
+async function saveBccMonitoringSettings() {
+    const enabled = document.getElementById('bccMonitoringToggle').checked;
+    const emails = document.getElementById('bccMonitoringEmailsInput').value.trim();
+
+    // Validate email addresses if provided
+    if (enabled && emails) {
+        const emailList = emails.split(',').map(e => e.trim()).filter(e => e);
+        for (const email of emailList) {
+            if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                alert('Please enter valid email addresses separated by commas');
+                return;
+            }
+        }
+    }
+
+    try {
+        // Save enabled state
+        await fetch('/api/settings.php?action=set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'bcc_monitoring_enabled', value: enabled ? '1' : '0' })
+        });
+
+        // Save email addresses
+        await fetch('/api/settings.php?action=set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'bcc_monitoring_emails', value: emails })
+        });
+
+        addEventLogMessage('success', 'BCC monitoring settings saved');
+    } catch (error) {
+        console.error('Error saving BCC monitoring settings:', error);
+        addEventLogMessage('error', 'Failed to save BCC monitoring settings');
+        alert('Error: ' + error.message);
+    }
+}
 
 document.getElementById('notificationModeToggle').addEventListener('change', function() {
     fetch('/api/settings.php?action=set', {

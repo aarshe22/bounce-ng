@@ -87,6 +87,31 @@ class NotificationSender {
         $subject = $this->replaceTemplateVars($notification['template_subject'], $notification);
         $body = $this->replaceTemplateVars($notification['template_body'], $notification, $recommendation);
 
+        // Get BCC monitoring settings (only in non-test mode)
+        $bccEmails = [];
+        if (!$this->testMode) {
+            $bccEnabledStmt = $this->db->prepare("SELECT value FROM settings WHERE key = 'bcc_monitoring_enabled'");
+            $bccEnabledStmt->execute();
+            $bccEnabled = $bccEnabledStmt->fetch();
+            
+            if ($bccEnabled && $bccEnabled['value'] === '1') {
+                $bccEmailsStmt = $this->db->prepare("SELECT value FROM settings WHERE key = 'bcc_monitoring_emails'");
+                $bccEmailsStmt->execute();
+                $bccEmailsData = $bccEmailsStmt->fetch();
+                
+                if ($bccEmailsData && !empty($bccEmailsData['value'])) {
+                    // Parse comma-separated email addresses
+                    $emailList = explode(',', $bccEmailsData['value']);
+                    foreach ($emailList as $email) {
+                        $email = trim($email);
+                        if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                            $bccEmails[] = $email;
+                        }
+                    }
+                }
+            }
+        }
+
         try {
             $mail = new PHPMailer(true);
             $mail->isSMTP();
@@ -105,11 +130,42 @@ class NotificationSender {
             
             $mail->Port = (int)$relayProvider['smtp_port'];
 
-            $mail->setFrom($relayProvider['smtp_from_email'], $relayProvider['smtp_from_name']);
+            // Set from address with proper encoding
+            $fromEmail = $relayProvider['smtp_from_email'];
+            $fromName = $relayProvider['smtp_from_name'];
+            $mail->setFrom($fromEmail, $fromName);
+            
+            // Set reply-to to match from address (improves deliverability)
+            $mail->addReplyTo($fromEmail, $fromName);
+            
+            // Add recipient
             $mail->addAddress($recipient);
+            
+            // Add BCC monitoring emails if enabled (non-test mode only)
+            foreach ($bccEmails as $bccEmail) {
+                $mail->addBCC($bccEmail);
+            }
+
+            // Format subject with proper encoding
             $mail->Subject = $subject;
-            $mail->Body = $body;
+            
+            // Format body for maximum deliverability
+            // Use plain text with proper line breaks and formatting
+            $formattedBody = $this->formatEmailBody($body);
+            $mail->Body = $formattedBody;
             $mail->isHTML(false);
+            
+            // Set character encoding
+            $mail->CharSet = 'UTF-8';
+            
+            // Add headers for better deliverability
+            $mail->addCustomHeader('X-Mailer', 'Bounce Monitor System');
+            $mail->addCustomHeader('X-Priority', '3'); // Normal priority
+            $mail->addCustomHeader('Precedence', 'bulk'); // Indicate automated message
+            
+            // Set message ID for tracking
+            $messageId = '<' . uniqid('bounce-monitor-', true) . '@' . parse_url($fromEmail, PHP_URL_HOST) . '>';
+            $mail->MessageID = $messageId;
 
             $mail->send();
 
@@ -121,7 +177,8 @@ class NotificationSender {
             ");
             $stmt->execute([$notificationId]);
 
-            $this->eventLogger->log('success', "Notification sent to {$recipient}", null, $notification['mailbox_id'], $notification['bounce_id']);
+            $bccInfo = !empty($bccEmails) ? ' (BCC: ' . implode(', ', $bccEmails) . ')' : '';
+            $this->eventLogger->log('success', "Notification sent to {$recipient}{$bccInfo}", null, $notification['mailbox_id'], $notification['bounce_id']);
 
             return true;
 
@@ -176,6 +233,47 @@ class NotificationSender {
         }
 
         return $result;
+    }
+
+    /**
+     * Format email body for maximum deliverability
+     * - Ensures proper line breaks
+     * - Removes excessive whitespace
+     * - Ensures proper text encoding
+     * - Adds proper spacing for readability
+     */
+    private function formatEmailBody($body) {
+        // Normalize line endings to CRLF (RFC 5322 standard)
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
+        $body = str_replace("\n", "\r\n", $body);
+        
+        // Remove excessive blank lines (more than 2 consecutive)
+        $body = preg_replace('/\r\n\s*\r\n\s*\r\n+/', "\r\n\r\n", $body);
+        
+        // Ensure lines don't exceed 78 characters (RFC 5322 recommendation)
+        // But preserve intentional formatting, so only wrap very long lines
+        $lines = explode("\r\n", $body);
+        $formattedLines = [];
+        foreach ($lines as $line) {
+            if (strlen($line) > 78 && !preg_match('/^[\s-]+$/', $line)) {
+                // Soft wrap long lines at word boundaries
+                $wrapped = wordwrap($line, 78, "\r\n ", true);
+                $formattedLines[] = $wrapped;
+            } else {
+                $formattedLines[] = $line;
+            }
+        }
+        $body = implode("\r\n", $formattedLines);
+        
+        // Trim trailing whitespace from each line
+        $body = preg_replace('/[ \t]+$/m', '', $body);
+        
+        // Ensure body ends with a newline
+        if (substr($body, -2) !== "\r\n") {
+            $body .= "\r\n";
+        }
+        
+        return $body;
     }
 }
 
