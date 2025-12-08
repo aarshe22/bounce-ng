@@ -236,86 +236,89 @@ try {
                     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
                 }
             } elseif ($path === 'process') {
-                // Call notify-cron.php for processing via HTTP
-                // This delegates to the centralized cron script
+                // Process mailboxes directly (synchronous) - restore original functionality
+                header('Content-Type: application/json');
+                
                 $eventLogger = new \BounceNG\EventLogger();
                 $userId = $_SESSION['user_id'] ?? null;
                 
-                $eventLogger->log('info', '[DEBUG] api/mailboxes.php: Process action called', $userId);
-                
-                header('Content-Type: application/json');
-                header('Connection: close');
-                
-                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Processing started in background']);
-                header('Content-Length: ' . strlen($response));
-                echo $response;
-                
-                // Flush and finish request
-                while (ob_get_level() > 0) {
-                    ob_end_flush();
-                }
-                flush();
-                
-                if (function_exists('fastcgi_finish_request')) {
-                    fastcgi_finish_request();
-                }
-                
-                // Set execution limits
+                // Set execution limits for long-running processing
                 set_time_limit(1800);
                 ini_set('max_execution_time', 1800);
-                ignore_user_abort(true);
                 
-                // Execute notify-cron.php in CLI mode (same as cron)
-                $cronScript = __DIR__ . '/../notify-cron.php';
-                $phpBinary = PHP_BINARY;
-                
-                $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Cron script: {$cronScript}", $userId);
-                $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: PHP binary: {$phpBinary}", $userId);
-                
-                if (!file_exists($cronScript)) {
-                    $errorMsg = "Cron script not found: {$cronScript}";
-                    error_log($errorMsg);
-                    $eventLogger->log('error', "[DEBUG] api/mailboxes.php: {$errorMsg}", $userId);
-                } else {
-                    $cronScript = realpath($cronScript);
-                    $workingDir = dirname($cronScript);
-                    $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' --process-only 2>&1';
+                try {
+                    // Get all enabled mailboxes
+                    $stmt = $db->query("SELECT id, name, email FROM mailboxes WHERE is_enabled = 1");
+                    $mailboxes = $stmt->fetchAll();
                     
-                    $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Command: {$command}", $userId);
-                    $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Working directory: {$workingDir}", $userId);
+                    if (empty($mailboxes)) {
+                        echo json_encode(['success' => false, 'error' => 'No enabled mailboxes found']);
+                        exit;
+                    }
                     
-                    // Execute in background (non-blocking)
-                    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                        $handle = popen("start /B " . $command, "r");
-                        if ($handle === false) {
-                            $eventLogger->log('error', "[DEBUG] api/mailboxes.php: Failed to start cron on Windows", $userId);
-                        } else {
-                            pclose($handle);
-                            $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started on Windows", $userId);
-                        }
-                    } else {
-                        $nohupPath = trim(shell_exec('which nohup 2>/dev/null') ?: 'nohup');
-                        $fullCommand = "cd " . escapeshellarg($workingDir) . " && " . escapeshellarg($nohupPath) . " " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 & echo $!";
+                    $eventLogger->log('info', "Starting processing for " . count($mailboxes) . " mailbox(es)", $userId);
+                    
+                    $results = [];
+                    $totalProcessed = 0;
+                    $totalSkipped = 0;
+                    $totalProblems = 0;
+                    
+                    foreach ($mailboxes as $mailbox) {
+                        $mailboxId = $mailbox['id'];
+                        $mailboxName = $mailbox['name'];
                         
-                        $pid = trim(shell_exec($fullCommand));
-                        $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Shell exec returned PID: '{$pid}'", $userId);
-                        
-                        if (empty($pid) || !is_numeric($pid)) {
-                            $fallbackCommand = "cd " . escapeshellarg($workingDir) . " && " . $command . " >> " . escapeshellarg($workingDir . '/notify-cron.log') . " 2>&1 &";
-                            $eventLogger->log('debug', "[DEBUG] api/mailboxes.php: Trying fallback: {$fallbackCommand}", $userId);
-                            exec($fallbackCommand, $output, $returnVar);
+                        try {
+                            $eventLogger->log('info', "Processing mailbox: {$mailboxName} (ID: {$mailboxId})", $userId, $mailboxId);
                             
-                            if ($returnVar !== 0) {
-                                $errorMsg = "Failed to execute. Return code: {$returnVar}, Output: " . implode("\n", $output);
-                                error_log($errorMsg);
-                                $eventLogger->log('error', "[DEBUG] api/mailboxes.php: {$errorMsg}", $userId);
-                            } else {
-                                $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started (fallback method)", $userId);
-                            }
-                        } else {
-                            $eventLogger->log('info', "[DEBUG] api/mailboxes.php: Cron started with PID: {$pid}", $userId);
+                            $monitor = new \BounceNG\MailboxMonitor($mailboxId);
+                            $result = $monitor->processInbox();
+                            $monitor->disconnect();
+                            
+                            $processed = $result['processed'] ?? 0;
+                            $skipped = $result['skipped'] ?? 0;
+                            $problems = $result['problems'] ?? 0;
+                            
+                            $totalProcessed += $processed;
+                            $totalSkipped += $skipped;
+                            $totalProblems += $problems;
+                            
+                            $results[] = [
+                                'mailbox_id' => $mailboxId,
+                                'mailbox_name' => $mailboxName,
+                                'processed' => $processed,
+                                'skipped' => $skipped,
+                                'problems' => $problems
+                            ];
+                            
+                            $eventLogger->log('info', "Mailbox {$mailboxName} completed: {$processed} processed, {$skipped} skipped, {$problems} problems", $userId, $mailboxId);
+                            
+                        } catch (Exception $e) {
+                            $errorMsg = $e->getMessage();
+                            $eventLogger->log('error', "Error processing mailbox {$mailboxName}: {$errorMsg}", $userId, $mailboxId);
+                            $results[] = [
+                                'mailbox_id' => $mailboxId,
+                                'mailbox_name' => $mailboxName,
+                                'error' => $errorMsg
+                            ];
                         }
                     }
+                    
+                    $eventLogger->log('info', "Processing complete: {$totalProcessed} processed, {$totalSkipped} skipped, {$totalProblems} problems across all mailboxes", $userId);
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Processing completed',
+                        'total_processed' => $totalProcessed,
+                        'total_skipped' => $totalSkipped,
+                        'total_problems' => $totalProblems,
+                        'results' => $results
+                    ]);
+                    
+                } catch (Exception $e) {
+                    $errorMsg = $e->getMessage();
+                    $eventLogger->log('error', "Fatal error during processing: {$errorMsg}", $userId);
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'error' => $errorMsg]);
                 }
             } else {
                 http_response_code(400);

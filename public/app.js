@@ -885,60 +885,59 @@ async function runProcessing() {
         // NO auto-refresh - user must manually refresh event log
         // This makes the SPA more robust and prevents interference with background processing
         
-        // Call notify-cron.php to process all mailboxes and send notifications
-        addEventLogMessage('info', '[DEBUG] Starting processing for all enabled mailboxes...');
-        console.log('[DEBUG] runProcessing: Calling /api/mailboxes.php?action=process');
+        // Process mailboxes synchronously - wait for results
+        addEventLogMessage('info', 'Starting mailbox processing...');
         
-        // Fire-and-forget: send request, don't wait for response
-        fetch('/api/mailboxes.php?action=process', {
+        const response = await fetch('/api/mailboxes.php?action=process', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        })
-        .then((response) => {
-            console.log('[DEBUG] runProcessing: Response status:', response.status);
-            addEventLogMessage('info', '[DEBUG] Processing request sent, HTTP status: ' + response.status);
-            return response.json();
-        })
-        .then((data) => {
-            console.log('[DEBUG] runProcessing: Response data:', data);
-            addEventLogMessage('info', '[DEBUG] Processing response: ' + JSON.stringify(data));
-        })
-        .catch((error) => {
-            console.error('[DEBUG] runProcessing: Error:', error);
-            addEventLogMessage('error', '[DEBUG] Error sending processing request: ' + error.message);
+            headers: { 'Content-Type': 'application/json' }
         });
         
-        addEventLogMessage('info', 'Processing request sent. Watch event log for real-time progress...');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         
-        // Keep button disabled - processing happens in background
-        // Re-enable after a short delay (processing continues server-side)
-        setTimeout(() => {
-            if (runBtn) {
-                runBtn.disabled = false;
-                runBtn.innerHTML = originalText;
+        const data = await response.json();
+        
+        if (data.success) {
+            const totalProcessed = data.total_processed || 0;
+            const totalSkipped = data.total_skipped || 0;
+            const totalProblems = data.total_problems || 0;
+            
+            addEventLogMessage('success', `Processing completed: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalProblems} problems`);
+            
+            // Show detailed results if available
+            if (data.results && data.results.length > 0) {
+                data.results.forEach(result => {
+                    if (result.error) {
+                        addEventLogMessage('error', `${result.mailbox_name}: ${result.error}`);
+                    } else {
+                        addEventLogMessage('info', `${result.mailbox_name}: ${result.processed} processed, ${result.skipped} skipped, ${result.problems} problems`);
+                    }
+                });
             }
             
-            // No auto-refresh - user must manually refresh event log
-            
-            // Refresh data
-            loadMailboxes();
-            loadDashboard();
-            loadEventLog();
-            loadNotificationQueue();
-        }, 3000); // Re-enable button after 3 seconds (processing continues in background)
+            // Refresh all data to show new bounces and notifications
+            await Promise.all([
+                loadMailboxes(),
+                loadDashboard(),
+                loadNotificationQueue(),
+                loadEventLog()
+            ]);
+        } else {
+            throw new Error(data.error || 'Processing failed');
+        }
         
     } catch (error) {
         console.error('Error running processing:', error);
-        addEventLogMessage('error', 'Error starting processing: ' + error.message);
-        
-        // Re-enable button on error
+        addEventLogMessage('error', 'Error during processing: ' + error.message);
+        alert('Error: ' + error.message);
+    } finally {
+        // Always re-enable button
         if (runBtn) {
             runBtn.disabled = false;
             runBtn.innerHTML = originalText;
         }
-        
-        // No auto-refresh needed
     }
 }
 

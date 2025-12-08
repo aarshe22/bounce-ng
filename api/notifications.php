@@ -74,39 +74,95 @@ try {
 
                 echo json_encode(['success' => true, 'data' => $results]);
             } elseif ($path === 'send-all') {
-                // Send all pending notifications - call notify-cron.php with send_only parameter
+                // Send all pending notifications directly (synchronous) - restore original functionality
                 header('Content-Type: application/json');
-                header('Connection: close');
                 
-                $response = json_encode(['success' => true, 'status' => 'processing', 'message' => 'Sending notifications in background']);
-                header('Content-Length: ' . strlen($response));
-                echo $response;
-                
-                // Flush and finish request
-                while (ob_get_level() > 0) {
-                    ob_end_flush();
-                }
-                flush();
-                
-                if (function_exists('fastcgi_finish_request')) {
-                    fastcgi_finish_request();
-                }
+                $eventLogger = new \BounceNG\EventLogger();
+                $userId = $_SESSION['user_id'] ?? null;
                 
                 // Set execution limits
                 set_time_limit(1800);
                 ini_set('max_execution_time', 1800);
-                ignore_user_abort(true);
                 
-                // Execute notify-cron.php in CLI mode with --send-only flag
-                $cronScript = __DIR__ . '/../notify-cron.php';
-                $phpBinary = PHP_BINARY;
-                $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($cronScript) . ' --send-only 2>&1';
-                
-                // Execute in background (non-blocking)
-                if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                    pclose(popen("start /B " . $command, "r"));
-                } else {
-                    exec($command . ' > /dev/null 2>&1 &');
+                try {
+                    // Get notification mode setting
+                    $settingsStmt = $db->prepare("SELECT value FROM settings WHERE key = 'notification_mode'");
+                    $settingsStmt->execute();
+                    $settings = $settingsStmt->fetch();
+                    $realTime = !$settings || $settings['value'] === 'realtime';
+                    
+                    if (!$realTime) {
+                        echo json_encode(['success' => false, 'error' => 'Notification mode is set to queue - notifications must be sent manually']);
+                        exit;
+                    }
+                    
+                    // Get test mode settings
+                    $testModeStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode'");
+                    $testModeStmt->execute();
+                    $testMode = $testModeStmt->fetch();
+                    
+                    $overrideEmailStmt = $db->prepare("SELECT value FROM settings WHERE key = 'test_mode_override_email'");
+                    $overrideEmailStmt->execute();
+                    $overrideEmail = $overrideEmailStmt->fetch();
+                    
+                    $isTestMode = $testMode && $testMode['value'] === '1';
+                    $testEmail = $overrideEmail ? $overrideEmail['value'] : '';
+                    
+                    // Get pending notifications count
+                    $countStmt = $db->query("SELECT COUNT(*) as count FROM notifications_queue WHERE status = 'pending'");
+                    $count = $countStmt->fetch()['count'];
+                    
+                    if ($count == 0) {
+                        echo json_encode(['success' => true, 'message' => 'No pending notifications to send', 'sent' => 0, 'failed' => 0]);
+                        exit;
+                    }
+                    
+                    $eventLogger->log('info', "Sending {$count} pending notification(s)", $userId);
+                    
+                    // Create notification sender
+                    $sender = new \BounceNG\NotificationSender();
+                    $sender->setTestMode($isTestMode, $testEmail);
+                    
+                    // Get all pending notifications
+                    $stmt = $db->prepare("
+                        SELECT id FROM notifications_queue 
+                        WHERE status = 'pending' 
+                        ORDER BY created_at ASC
+                    ");
+                    $stmt->execute();
+                    $notifications = $stmt->fetchAll();
+                    
+                    $sentCount = 0;
+                    $failedCount = 0;
+                    
+                    foreach ($notifications as $notification) {
+                        try {
+                            $success = $sender->sendNotification($notification['id']);
+                            if ($success) {
+                                $sentCount++;
+                            } else {
+                                $failedCount++;
+                            }
+                        } catch (Exception $e) {
+                            $failedCount++;
+                            $eventLogger->log('error', "Error sending notification ID {$notification['id']}: {$e->getMessage()}", $userId);
+                        }
+                    }
+                    
+                    $eventLogger->log('info', "Notification sending completed: {$sentCount} sent, {$failedCount} failed", $userId);
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "Sent {$sentCount} notification(s), {$failedCount} failed",
+                        'sent' => $sentCount,
+                        'failed' => $failedCount
+                    ]);
+                    
+                } catch (Exception $e) {
+                    $errorMsg = $e->getMessage();
+                    $eventLogger->log('error', "Fatal error during notification sending: {$errorMsg}", $userId);
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'error' => $errorMsg]);
                 }
             } else {
                 http_response_code(400);
