@@ -8,21 +8,24 @@ class DomainValidator {
      * Returns array with 'valid' => bool, 'reason' => string
      */
     public static function validateDomain($domain) {
-        if (empty($domain)) {
+        // Fast format checks first (before DNS lookup)
+        
+        // Check for blank/empty domain
+        if (empty($domain) || trim($domain) === '') {
             return ['valid' => false, 'reason' => 'Empty domain'];
         }
 
-        // Basic format validation
-        if (!preg_match('/^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i', $domain)) {
-            return ['valid' => false, 'reason' => 'Invalid format'];
-        }
-
-        // Check domain length (max 253 characters)
+        // Check domain length (max 253 characters per RFC)
         if (strlen($domain) > 253) {
             return ['valid' => false, 'reason' => 'Domain too long'];
         }
 
-        // Check for valid TLD (at least 2 characters, max 63)
+        // Basic format validation (must match valid domain pattern)
+        if (!preg_match('/^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i', $domain)) {
+            return ['valid' => false, 'reason' => 'Invalid format'];
+        }
+
+        // Check for valid TLD structure (at least 2 characters, max 63)
         $parts = explode('.', $domain);
         if (count($parts) < 2) {
             return ['valid' => false, 'reason' => 'No TLD'];
@@ -33,12 +36,7 @@ class DomainValidator {
             return ['valid' => false, 'reason' => 'Invalid TLD'];
         }
 
-        // Check for common TLDs (basic validation)
-        $commonTlds = ['com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'co', 'io', 'ca', 'uk', 'au', 'de', 'fr', 'jp', 'cn', 'in', 'br', 'ru', 'mx', 'nl', 'se', 'no', 'dk', 'fi', 'pl', 'it', 'es', 'pt', 'gr', 'ie', 'nz', 'za', 'sg', 'hk', 'tw', 'kr', 'th', 'ph', 'id', 'my', 'vn', 'us', 'info', 'biz', 'name', 'pro', 'coop', 'aero', 'museum', 'mobi', 'asia', 'tel', 'travel', 'xxx', 'jobs', 'me', 'tv', 'cc', 'ws', 'bz', 'nu', 'tk', 'ml', 'ga', 'cf', 'gq'];
-        if (!in_array(strtolower($tld), $commonTlds)) {
-            // Not a common TLD, but might still be valid - check DNS
-        }
-
+        // All format checks passed, now check DNS resolution
         // DNS validation - check if domain resolves
         // Use a timeout to avoid hanging on slow DNS lookups
         $hasDns = false;
@@ -76,17 +74,7 @@ class DomainValidator {
             return ['valid' => false, 'reason' => 'Domain does not resolve (no DNS records)'];
         }
 
-        // Additional validation: check if it's a known typo pattern
-        // This is a simple heuristic - could be expanded
-        $typoPatterns = [
-            '/^[a-z]{1,2}[a-z]{2,}$/i', // Very short domains (like "shaaw")
-        ];
-        
-        $domainWithoutTld = substr($domain, 0, strrpos($domain, '.'));
-        if (strlen($domainWithoutTld) < 3) {
-            return ['valid' => false, 'reason' => 'Suspiciously short domain name'];
-        }
-
+        // Domain is valid if it resolves
         return ['valid' => true, 'reason' => 'Valid domain'];
     }
 
@@ -107,11 +95,6 @@ class DomainValidator {
         // Check for common typo patterns
         $domainWithoutTld = substr($domain, 0, strrpos($domain, '.'));
         $tld = substr($domain, strrpos($domain, '.') + 1);
-
-        // Very short domain names are often typos
-        if (strlen($domainWithoutTld) < 4) {
-            $likelyTypo = true;
-        }
 
         // Check for repeated characters (common in typos)
         if (preg_match('/(.)\1{2,}/', $domainWithoutTld)) {
