@@ -200,6 +200,9 @@
                                 <button class="btn btn-sm btn-primary" id="notificationQueueApplyBtn" onclick="applyNotificationQueueFilters()">
                                     <i class="bi bi-funnel"></i> Apply
                                 </button>
+                                <button class="btn btn-sm btn-warning" onclick="deduplicateNotifications()" title="Remove duplicate notifications, keeping the newest">
+                                    <i class="bi bi-files"></i> Deduplicate
+                                </button>
                             </div>
                         </div>
                         <div id="notificationQueue"></div>
@@ -230,6 +233,9 @@
                                 </select>
                                 <button class="btn btn-sm btn-primary" id="notificationQueueApplyBtnView" onclick="applyNotificationQueueFilters()">
                                     <i class="bi bi-funnel"></i> Apply
+                                </button>
+                                <button class="btn btn-sm btn-warning" onclick="deduplicateNotifications()" title="Remove duplicate notifications, keeping the newest">
+                                    <i class="bi bi-files"></i> Deduplicate
                                 </button>
                             </div>
                         </div>

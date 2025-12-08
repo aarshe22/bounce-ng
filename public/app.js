@@ -1398,6 +1398,52 @@ async function sendSelectedNotifications() {
     }
 }
 
+// Deduplicate notifications
+async function deduplicateNotifications() {
+    if (!confirm('This will remove duplicate notifications (same recipient email), keeping only the newest one. Continue?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/notifications.php?action=deduplicate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Show results in a dialog
+            const merged = data.merged || 0;
+            const deleted = data.deleted || 0;
+            
+            let message = 'Deduplication completed successfully.\n\n';
+            if (merged > 0) {
+                message += `${merged} notification(s) were merged.\n`;
+                message += `${deleted} duplicate(s) were removed.\n\n`;
+                message += 'The newest notification was kept for each duplicate recipient.';
+            } else {
+                message += 'No duplicate notifications found.';
+            }
+            
+            alert(message);
+            
+            // Refresh the notification queue to show updated data
+            await loadNotificationQueue();
+            loadDashboard();
+        } else {
+            throw new Error(data.error || 'Deduplication failed');
+        }
+    } catch (error) {
+        console.error('Error deduplicating notifications:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
 // User Management
 document.getElementById('userManagementBtn').addEventListener('click', async function() {
     try {

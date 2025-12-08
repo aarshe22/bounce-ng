@@ -164,6 +164,89 @@ try {
                     http_response_code(500);
                     echo json_encode(['success' => false, 'error' => $errorMsg]);
                 }
+            } elseif ($path === 'deduplicate') {
+                // Deduplicate notifications - remove duplicates based on recipient_email, keep newest
+                $auth->requireAdmin(); // Only admins can deduplicate
+                
+                $eventLogger = new \BounceNG\EventLogger();
+                $userId = $_SESSION['user_id'] ?? null;
+                
+                try {
+                    $db->beginTransaction();
+                    
+                    // Find all duplicate recipient_email addresses in pending notifications
+                    // Get all recipient emails that appear more than once
+                    $stmt = $db->query("
+                        SELECT recipient_email, COUNT(*) as count
+                        FROM notifications_queue
+                        WHERE status = 'pending'
+                        GROUP BY recipient_email
+                        HAVING COUNT(*) > 1
+                    ");
+                    $duplicateEmails = $stmt->fetchAll();
+                    
+                    $totalMerged = 0;
+                    $totalDeleted = 0;
+                    
+                    foreach ($duplicateEmails as $dup) {
+                        $recipientEmail = $dup['recipient_email'];
+                        $count = (int)$dup['count'];
+                        
+                        if ($count <= 1) {
+                            continue;
+                        }
+                        
+                        // Get all notifications for this recipient_email with their created_at dates
+                        // Order by created_at DESC to get newest first
+                        $stmt = $db->prepare("
+                            SELECT id, created_at
+                            FROM notifications_queue
+                            WHERE recipient_email = ? AND status = 'pending'
+                            ORDER BY created_at DESC
+                        ");
+                        $stmt->execute([$recipientEmail]);
+                        $notifications = $stmt->fetchAll();
+                        
+                        if (count($notifications) <= 1) {
+                            continue;
+                        }
+                        
+                        // Keep the first one (newest created_at), delete the rest
+                        $keepId = $notifications[0]['id'];
+                        $deleteIds = array_slice(array_column($notifications, 'id'), 1);
+                        
+                        if (count($deleteIds) > 0) {
+                            $deletePlaceholders = implode(',', array_fill(0, count($deleteIds), '?'));
+                            $deleteStmt = $db->prepare("
+                                DELETE FROM notifications_queue
+                                WHERE id IN ({$deletePlaceholders})
+                            ");
+                            $deleteStmt->execute($deleteIds);
+                            
+                            $totalMerged += $count;
+                            $totalDeleted += count($deleteIds);
+                            
+                            $eventLogger->log('info', "Deduplicated {$count} notifications for {$recipientEmail}: kept newest, deleted " . count($deleteIds) . " duplicate(s)", $userId);
+                        }
+                    }
+                    
+                    $db->commit();
+                    
+                    $eventLogger->log('info', "Deduplication complete: {$totalMerged} notifications merged, {$totalDeleted} duplicates removed", $userId);
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Deduplication completed',
+                        'merged' => $totalMerged,
+                        'deleted' => $totalDeleted
+                    ]);
+                    
+                } catch (Exception $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    throw $e;
+                }
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);
