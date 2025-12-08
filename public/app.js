@@ -853,17 +853,18 @@ async function runProcessing() {
         // Show user feedback
         addEventLogMessage('info', 'Starting mailbox processing...');
         
-        const response = await fetch('/api/mailboxes.php?action=list');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        // Check mailboxes first
+        const listResponse = await fetch('/api/mailboxes.php?action=list');
+        if (!listResponse.ok) {
+            throw new Error(`HTTP error! status: ${listResponse.status}`);
         }
         
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error(data.error || 'Failed to get mailbox list');
+        const listData = await listResponse.json();
+        if (!listData.success) {
+            throw new Error(listData.error || 'Failed to get mailbox list');
         }
         
-        if (data.data.length === 0) {
+        if (listData.data.length === 0) {
             alert('No mailboxes configured');
             if (runBtn) {
                 runBtn.disabled = false;
@@ -872,7 +873,7 @@ async function runProcessing() {
             return;
         }
         
-        const enabledMailboxes = data.data.filter(m => m.is_enabled == 1);
+        const enabledMailboxes = listData.data.filter(m => m.is_enabled == 1);
         if (enabledMailboxes.length === 0) {
             alert('No enabled mailboxes to process');
             if (runBtn) {
@@ -882,33 +883,30 @@ async function runProcessing() {
             return;
         }
         
-        // NO auto-refresh - user must manually refresh event log
-        // This makes the SPA more robust and prevents interference with background processing
-        
         // Process mailboxes synchronously - wait for results
-        addEventLogMessage('info', 'Starting mailbox processing...');
+        addEventLogMessage('info', `Processing ${enabledMailboxes.length} enabled mailbox(es)...`);
         
-        const response = await fetch('/api/mailboxes.php?action=process', {
+        const processResponse = await fetch('/api/mailboxes.php?action=process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        if (!processResponse.ok) {
+            throw new Error(`HTTP error! status: ${processResponse.status}`);
         }
         
-        const data = await response.json();
+        const processData = await processResponse.json();
         
-        if (data.success) {
-            const totalProcessed = data.total_processed || 0;
-            const totalSkipped = data.total_skipped || 0;
-            const totalProblems = data.total_problems || 0;
+        if (processData.success) {
+            const totalProcessed = processData.total_processed || 0;
+            const totalSkipped = processData.total_skipped || 0;
+            const totalProblems = processData.total_problems || 0;
             
             addEventLogMessage('success', `Processing completed: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalProblems} problems`);
             
             // Show detailed results if available
-            if (data.results && data.results.length > 0) {
-                data.results.forEach(result => {
+            if (processData.results && processData.results.length > 0) {
+                processData.results.forEach(result => {
                     if (result.error) {
                         addEventLogMessage('error', `${result.mailbox_name}: ${result.error}`);
                     } else {
@@ -925,7 +923,7 @@ async function runProcessing() {
                 loadEventLog()
             ]);
         } else {
-            throw new Error(data.error || 'Processing failed');
+            throw new Error(processData.error || 'Processing failed');
         }
         
     } catch (error) {
