@@ -124,6 +124,23 @@ try {
         ORDER BY count DESC
     ");
     $smtpCodes = $stmt->fetchAll();
+    
+    // Get domains for each SMTP code
+    foreach ($smtpCodes as &$code) {
+        $stmt = $db->prepare("
+            SELECT 
+                b.recipient_domain,
+                COUNT(*) as bounce_count,
+                MAX(b.bounce_date) as last_bounce
+            FROM bounces b
+            WHERE b.smtp_code = ?
+            GROUP BY b.recipient_domain
+            ORDER BY bounce_count DESC
+        ");
+        $stmt->execute([$code['smtp_code']]);
+        $code['domains'] = $stmt->fetchAll();
+    }
+    unset($code); // Break reference
 
     // Get statistics
     $stmt = $db->query("SELECT COUNT(*) as total FROM bounces");

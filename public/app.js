@@ -1208,13 +1208,15 @@ function displayDashboard(data) {
         return 'info'; // Other codes
     };
     
-    data.smtpCodes.forEach(code => {
+    data.smtpCodes.forEach((code, index) => {
         const item = document.createElement('div');
-        item.className = 'mb-2 p-2 rounded bg-white bg-opacity-10';
+        item.className = 'mb-2 rounded bg-white bg-opacity-10 smtp-code-item';
+        item.setAttribute('data-code-index', index);
         
         const description = code.description || 'No description available';
         const codeColor = getCodeColor(code.smtp_code);
         const affectedDomains = code.affected_domains || 0;
+        const domains = code.domains || [];
         
         // Format dates
         let firstSeenText = 'N/A';
@@ -1238,22 +1240,77 @@ function displayDashboard(data) {
             }
         }
         
-        item.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start mb-1">
-                <div class="flex-grow-1">
-                    <div class="fw-bold text-white">
-                        <span class="badge bg-${codeColor} me-2">${code.smtp_code || 'N/A'}</span>
-                        ${description}
+        // Build domains list HTML
+        let domainsHtml = '';
+        if (domains.length > 0) {
+            domainsHtml = '<div class="smtp-domains-list" style="display: none;">';
+            domainsHtml += '<div class="p-2 pt-0 mt-2 border-top border-white border-opacity-25">';
+            domainsHtml += '<small class="text-white-50 d-block mb-2"><i class="bi bi-globe"></i> Affected Domains:</small>';
+            domains.forEach(domain => {
+                const lastBounce = domain.last_bounce ? new Date(domain.last_bounce).toLocaleDateString() : 'N/A';
+                domainsHtml += `
+                    <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                        <span class="text-white fw-bold">${domain.recipient_domain}</span>
+                        <span class="text-white-50 ms-2">(${domain.bounce_count} bounce${domain.bounce_count !== 1 ? 's' : ''})</span>
+                        <span class="text-white-50 ms-2">Last: ${lastBounce}</span>
                     </div>
-                    ${code.recommendation ? `<small class="text-white-50 d-block mt-1"><i class="bi bi-lightbulb"></i> ${code.recommendation}</small>` : ''}
+                `;
+            });
+            domainsHtml += '</div></div>';
+        }
+        
+        item.innerHTML = `
+            <div class="p-2 smtp-code-header" style="cursor: pointer;">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-white">
+                            <span class="badge bg-${codeColor} me-2">${code.smtp_code || 'N/A'}</span>
+                            ${description}
+                            ${domains.length > 0 ? '<i class="bi bi-chevron-down ms-2 smtp-chevron" style="font-size: 0.75rem; transition: transform 0.3s;"></i>' : ''}
+                        </div>
+                        ${code.recommendation ? `<small class="text-white-50 d-block mt-1"><i class="bi bi-lightbulb"></i> ${code.recommendation}</small>` : ''}
+                    </div>
+                    <span class="badge bg-${codeColor} ms-2" title="Occurrences">${code.count}</span>
                 </div>
-                <span class="badge bg-${codeColor} ms-2" title="Occurrences">${code.count}</span>
+                <div class="d-flex gap-3 mt-1">
+                    <small class="text-white-50"><i class="bi bi-globe"></i> ${affectedDomains} domain(s)</small>
+                    <small class="text-white-50"><i class="bi bi-calendar"></i> Last: ${lastSeenText}</small>
+                </div>
             </div>
-            <div class="d-flex gap-3 mt-1">
-                <small class="text-white-50"><i class="bi bi-globe"></i> ${affectedDomains} domain(s)</small>
-                <small class="text-white-50"><i class="bi bi-calendar"></i> Last: ${lastSeenText}</small>
-            </div>
+            ${domainsHtml}
         `;
+        
+        // Add click handler for accordion
+        if (domains.length > 0) {
+            const header = item.querySelector('.smtp-code-header');
+            const domainsList = item.querySelector('.smtp-domains-list');
+            const chevron = item.querySelector('.smtp-chevron');
+            
+            header.addEventListener('click', function() {
+                const isExpanded = domainsList.style.display !== 'none';
+                
+                if (isExpanded) {
+                    // Collapse
+                    domainsList.style.maxHeight = domainsList.scrollHeight + 'px';
+                    // Force reflow
+                    domainsList.offsetHeight;
+                    domainsList.style.maxHeight = '0';
+                    setTimeout(() => {
+                        domainsList.style.display = 'none';
+                    }, 300);
+                    chevron.style.transform = 'rotate(0deg)';
+                } else {
+                    // Expand
+                    domainsList.style.display = 'block';
+                    domainsList.style.maxHeight = '0';
+                    // Force reflow
+                    domainsList.offsetHeight;
+                    domainsList.style.maxHeight = domainsList.scrollHeight + 'px';
+                    chevron.style.transform = 'rotate(180deg)';
+                }
+            });
+        }
+        
         codesContainer.appendChild(item);
     });
 }

@@ -136,6 +136,25 @@
     color: #6c757d;
 }
 
+/* SMTP code accordion styles */
+.smtp-code-item {
+    transition: background-color 0.2s;
+}
+
+.smtp-code-item:hover {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.smtp-code-header {
+    user-select: none;
+}
+
+.smtp-domains-list {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
 /* Scrollable domain panel */
 #topDomains {
     scrollbar-width: thin;
