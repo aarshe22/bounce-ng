@@ -165,7 +165,7 @@ try {
                     echo json_encode(['success' => false, 'error' => $errorMsg]);
                 }
             } elseif ($path === 'deduplicate') {
-                // Deduplicate notifications - remove duplicates based on recipient_email, keep newest
+                // Deduplicate notifications - remove duplicates based on recipient_email AND original_to pair, keep newest
                 $auth->requireAdmin(); // Only admins can deduplicate
                 
                 $eventLogger = new \BounceNG\EventLogger();
@@ -174,37 +174,40 @@ try {
                 try {
                     $db->beginTransaction();
                     
-                    // Find all duplicate recipient_email addresses in pending notifications
-                    // Get all recipient emails that appear more than once
+                    // Find all duplicate recipient_email + original_to pairs in pending notifications
+                    // Group by both recipient_email and original_to to find true duplicates
                     $stmt = $db->query("
-                        SELECT recipient_email, COUNT(*) as count
-                        FROM notifications_queue
-                        WHERE status = 'pending'
-                        GROUP BY recipient_email
+                        SELECT nq.recipient_email, b.original_to, COUNT(*) as count
+                        FROM notifications_queue nq
+                        JOIN bounces b ON nq.bounce_id = b.id
+                        WHERE nq.status = 'pending'
+                        GROUP BY nq.recipient_email, b.original_to
                         HAVING COUNT(*) > 1
                     ");
-                    $duplicateEmails = $stmt->fetchAll();
+                    $duplicatePairs = $stmt->fetchAll();
                     
                     $totalMerged = 0;
                     $totalDeleted = 0;
                     
-                    foreach ($duplicateEmails as $dup) {
+                    foreach ($duplicatePairs as $dup) {
                         $recipientEmail = $dup['recipient_email'];
+                        $originalTo = $dup['original_to'];
                         $count = (int)$dup['count'];
                         
                         if ($count <= 1) {
                             continue;
                         }
                         
-                        // Get all notifications for this recipient_email with their created_at dates
+                        // Get all notifications for this recipient_email + original_to pair with their created_at dates
                         // Order by created_at DESC to get newest first
                         $stmt = $db->prepare("
-                            SELECT id, created_at
-                            FROM notifications_queue
-                            WHERE recipient_email = ? AND status = 'pending'
-                            ORDER BY created_at DESC
+                            SELECT nq.id, nq.created_at
+                            FROM notifications_queue nq
+                            JOIN bounces b ON nq.bounce_id = b.id
+                            WHERE nq.recipient_email = ? AND b.original_to = ? AND nq.status = 'pending'
+                            ORDER BY nq.created_at DESC
                         ");
-                        $stmt->execute([$recipientEmail]);
+                        $stmt->execute([$recipientEmail, $originalTo]);
                         $notifications = $stmt->fetchAll();
                         
                         if (count($notifications) <= 1) {
@@ -226,7 +229,7 @@ try {
                             $totalMerged += $count;
                             $totalDeleted += count($deleteIds);
                             
-                            $eventLogger->log('info', "Deduplicated {$count} notifications for {$recipientEmail}: kept newest, deleted " . count($deleteIds) . " duplicate(s)", $userId);
+                            $eventLogger->log('info', "Deduplicated {$count} notifications for CC:{$recipientEmail} + TO:{$originalTo}: kept newest, deleted " . count($deleteIds) . " duplicate(s)", $userId);
                         }
                     }
                     

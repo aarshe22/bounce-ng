@@ -10,12 +10,14 @@
  *   php notify-cron.php                    # Process and send (default)
  *   php notify-cron.php --process-only      # Only process mailboxes and queue notifications
  *   php notify-cron.php --send-only        # Only send pending notifications
+ *   php notify-cron.php --dedupe           # Deduplicate notifications (can be combined with other flags)
  * 
  * Exit codes:
  *   0 = Success
  *   1 = General error
  *   2 = Processing error
  *   3 = Sending error
+ *   4 = Deduplication error
  */
 
 require_once __DIR__ . '/vendor/autoload.php';
@@ -56,6 +58,7 @@ function cronLog($level, $message, $eventLogger = null, $userId = null, $mailbox
 // Parse command line arguments
 $processOnly = false;
 $sendOnly = false;
+$dedupe = false;
 $webCall = false;
 $userId = null;
 
@@ -67,6 +70,8 @@ if ($isCli) {
             $processOnly = true;
         } elseif ($arg === '--send-only') {
             $sendOnly = true;
+        } elseif ($arg === '--dedupe') {
+            $dedupe = true;
         }
     }
 } else {
@@ -125,6 +130,7 @@ cronLog('info', "=== CRON SCRIPT STARTED ===", $eventLogger, $userId);
 cronLog('info', "CLI mode: " . ($isCli ? 'YES' : 'NO'), $eventLogger, $userId);
 cronLog('info', "Process only: " . ($processOnly ? 'YES' : 'NO'), $eventLogger, $userId);
 cronLog('info', "Send only: " . ($sendOnly ? 'YES' : 'NO'), $eventLogger, $userId);
+cronLog('info', "Dedupe: " . ($dedupe ? 'YES' : 'NO'), $eventLogger, $userId);
 cronLog('info', "Web call: " . ($webCall ? 'YES' : 'NO'), $eventLogger, $userId);
 cronLog('info', "User ID: " . ($userId ?? 'NULL'), $eventLogger, $userId);
 cronLog('info', "PHP version: " . PHP_VERSION, $eventLogger, $userId);
@@ -259,6 +265,94 @@ try {
             $errorMsg = $e->getMessage();
             cronLog('error', "Fatal error during notification sending: {$errorMsg}", $eventLogger, $userId);
             $exitCode = 3;
+        }
+    }
+    
+    // Step 3: Deduplicate notifications (if --dedupe flag is set)
+    if ($dedupe) {
+        cronLog('info', "Starting notification deduplication phase...", $eventLogger, $userId);
+        
+        try {
+            $db->beginTransaction();
+            
+            // Find all duplicate recipient_email + original_to pairs in pending notifications
+            // Group by both recipient_email and original_to to find true duplicates
+            $stmt = $db->query("
+                SELECT nq.recipient_email, b.original_to, COUNT(*) as count
+                FROM notifications_queue nq
+                JOIN bounces b ON nq.bounce_id = b.id
+                WHERE nq.status = 'pending'
+                GROUP BY nq.recipient_email, b.original_to
+                HAVING COUNT(*) > 1
+            ");
+            $duplicatePairs = $stmt->fetchAll();
+            
+            $totalMerged = 0;
+            $totalDeleted = 0;
+            
+            if (empty($duplicatePairs)) {
+                cronLog('info', "No duplicate notifications found", $eventLogger, $userId);
+            } else {
+                cronLog('info', "Found " . count($duplicatePairs) . " duplicate CC+TO pair(s) to process", $eventLogger, $userId);
+                
+                foreach ($duplicatePairs as $dup) {
+                    $recipientEmail = $dup['recipient_email'];
+                    $originalTo = $dup['original_to'];
+                    $count = (int)$dup['count'];
+                    
+                    if ($count <= 1) {
+                        continue;
+                    }
+                    
+                    // Get all notifications for this recipient_email + original_to pair with their created_at dates
+                    // Order by created_at DESC to get newest first
+                    $stmt = $db->prepare("
+                        SELECT nq.id, nq.created_at
+                        FROM notifications_queue nq
+                        JOIN bounces b ON nq.bounce_id = b.id
+                        WHERE nq.recipient_email = ? AND b.original_to = ? AND nq.status = 'pending'
+                        ORDER BY nq.created_at DESC
+                    ");
+                    $stmt->execute([$recipientEmail, $originalTo]);
+                    $notifications = $stmt->fetchAll();
+                    
+                    if (count($notifications) <= 1) {
+                        continue;
+                    }
+                    
+                    // Keep the first one (newest created_at), delete the rest
+                    $keepId = $notifications[0]['id'];
+                    $deleteIds = array_slice(array_column($notifications, 'id'), 1);
+                    
+                    if (count($deleteIds) > 0) {
+                        $deletePlaceholders = implode(',', array_fill(0, count($deleteIds), '?'));
+                        $deleteStmt = $db->prepare("
+                            DELETE FROM notifications_queue
+                            WHERE id IN ({$deletePlaceholders})
+                        ");
+                        $deleteStmt->execute($deleteIds);
+                        
+                        $totalMerged += $count;
+                        $totalDeleted += count($deleteIds);
+                        
+                        cronLog('info', "Deduplicated {$count} notifications for CC:{$recipientEmail} + TO:{$originalTo}: kept newest, deleted " . count($deleteIds) . " duplicate(s)", 
+                            $eventLogger, $userId);
+                    }
+                }
+                
+                $db->commit();
+                
+                cronLog('info', "Deduplication completed: {$totalMerged} notifications merged, {$totalDeleted} duplicates removed", $eventLogger, $userId);
+            }
+            
+            cronLog('info', "Notification deduplication phase completed", $eventLogger, $userId);
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            $errorMsg = $e->getMessage();
+            cronLog('error', "Fatal error during notification deduplication: {$errorMsg}", $eventLogger, $userId);
+            $exitCode = 4; // Deduplication error
         }
     }
     

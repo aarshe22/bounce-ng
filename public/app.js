@@ -1400,7 +1400,7 @@ async function sendSelectedNotifications() {
 
 // Deduplicate notifications
 async function deduplicateNotifications() {
-    if (!confirm('This will remove duplicate notifications (same recipient email), keeping only the newest one. Continue?')) {
+    if (!confirm('This will remove duplicate notifications (same CC recipient + TO address pair), keeping only the newest one for each pair. Continue?')) {
         return;
     }
     
@@ -1425,7 +1425,7 @@ async function deduplicateNotifications() {
             if (merged > 0) {
                 message += `${merged} notification(s) were merged.\n`;
                 message += `${deleted} duplicate(s) were removed.\n\n`;
-                message += 'The newest notification was kept for each duplicate recipient.';
+                message += 'The newest notification was kept for each duplicate CC+TO pair.';
             } else {
                 message += 'No duplicate notifications found.';
             }
