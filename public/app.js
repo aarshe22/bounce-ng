@@ -1075,9 +1075,10 @@ function displayDashboard(data) {
     if (data.domains.length === 0) {
         domainsContainer.innerHTML = '<p class="text-white-50 mb-0">No domains found</p>';
     } else {
-        data.domains.forEach(domain => {
+        data.domains.forEach((domain, index) => {
             const item = document.createElement('div');
-            item.className = 'mb-2 p-2 rounded bg-white bg-opacity-10';
+            item.className = 'mb-2 rounded bg-white bg-opacity-10 domain-item';
+            item.setAttribute('data-domain-index', index);
             
             // Convert trust score from 0-100 to 1-10 scale for display
             // 0-100 stored internally, 1-10 displayed (1 = least trusted, 10 = most trusted)
@@ -1122,69 +1123,177 @@ function displayDashboard(data) {
             const isInvalid = domain.is_valid === false;
             const invalidBadge = isInvalid ? '<span class="badge bg-danger me-1" title="Invalid domain"><i class="bi bi-x-circle"></i> Invalid</span>' : '';
             
-            // Build email addresses display for invalid domains
-            let emailAddressesHtml = '';
-            if (isInvalid) {
-                const toAddresses = domain.associated_to_addresses || [];
-                const ccAddresses = domain.associated_cc_addresses || [];
-                const emailPairs = domain.email_pairs || [];
+            // Build detailed information for accordion
+            const recentBounces = domain.recent_bounces || [];
+            const smtpCodes = domain.smtp_codes || [];
+            const bounceTimeline = domain.bounce_timeline || [];
+            
+            let detailsHtml = '';
+            if (recentBounces.length > 0 || smtpCodes.length > 0 || bounceTimeline.length > 0) {
+                detailsHtml = '<div class="domain-details-list" style="display: none;">';
+                detailsHtml += '<div class="p-2 pt-0 mt-2 border-top border-white border-opacity-25">';
                 
-                // Collect unique email addresses
-                const allEmails = [...new Set([...toAddresses, ...ccAddresses])];
-                
-                if (allEmails.length > 0 || emailPairs.length > 0) {
-                    emailAddressesHtml = '<div class="mt-2 p-2 bg-danger bg-opacity-25 rounded">';
-                    emailAddressesHtml += '<small class="fw-bold text-warning d-block mb-1"><i class="bi bi-exclamation-triangle"></i> Associated Email Addresses:</small>';
-                    
-                    // Show email pairs (TO:CC) if available
-                    if (emailPairs.length > 0) {
-                        emailAddressesHtml += '<div class="mb-2">';
-                        emailPairs.forEach(pair => {
-                            emailAddressesHtml += `<div class="small text-white-50 mb-1">`;
-                            emailAddressesHtml += `<span class="text-white">TO:</span> ${pair.to}`;
-                            if (pair.cc) {
-                                emailAddressesHtml += ` <span class="text-white ms-2">CC:</span> ${pair.cc}`;
-                            }
-                            emailAddressesHtml += `</div>`;
-                        });
-                        emailAddressesHtml += '</div>';
-                    } else {
-                        // Fallback to showing all addresses
-                        if (toAddresses.length > 0) {
-                            emailAddressesHtml += `<div class="small mb-1"><span class="text-white">TO addresses:</span> ${toAddresses.join(', ')}</div>`;
-                        }
-                        if (ccAddresses.length > 0) {
-                            emailAddressesHtml += `<div class="small mb-1"><span class="text-white">CC addresses:</span> ${ccAddresses.join(', ')}</div>`;
-                        }
-                    }
-                    
-                    emailAddressesHtml += '</div>';
+                // Recent bounces section
+                if (recentBounces.length > 0) {
+                    detailsHtml += '<div class="mb-3">';
+                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-clock-history"></i> Recent Bounces:</small>';
+                    recentBounces.forEach(bounce => {
+                        const bounceDate = new Date(bounce.bounce_date);
+                        const statusColor = bounce.deliverability_status === 'permanent_failure' ? 'danger' : 
+                                          bounce.deliverability_status === 'temporary_failure' ? 'warning' : 'secondary';
+                        detailsHtml += `
+                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <span class="text-dark fw-bold">${bounce.original_to || 'N/A'}</span>
+                                        ${bounce.original_subject ? `<div class="text-dark text-opacity-75">${bounce.original_subject}</div>` : ''}
+                                        ${bounce.smtp_code ? `<span class="badge bg-${statusColor} ms-2">${bounce.smtp_code}</span>` : ''}
+                                    </div>
+                                    <small class="text-dark">${bounceDate.toLocaleDateString()} ${bounceDate.toLocaleTimeString()}</small>
+                                </div>
+                                ${bounce.smtp_reason ? `<div class="text-dark text-opacity-75 mt-1"><small>${bounce.smtp_reason}</small></div>` : ''}
+                                ${bounce.smtp_description ? `<div class="text-dark text-opacity-75"><small><i>${bounce.smtp_description}</i></small></div>` : ''}
+                            </div>
+                        `;
+                    });
+                    detailsHtml += '</div>';
                 }
+                
+                // SMTP codes breakdown
+                if (smtpCodes.length > 0) {
+                    detailsHtml += '<div class="mb-3">';
+                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-list-ul"></i> SMTP Codes:</small>';
+                    smtpCodes.forEach(code => {
+                        const codeColor = code.smtp_code >= 550 && code.smtp_code <= 559 ? 'danger' : 
+                                       code.smtp_code >= 450 && code.smtp_code <= 459 ? 'warning' : 'info';
+                        detailsHtml += `
+                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                                <span class="badge bg-${codeColor} me-2">${code.smtp_code}</span>
+                                <span class="text-dark fw-bold">${code.count} occurrence${code.count !== 1 ? 's' : ''}</span>
+                                ${code.description ? `<div class="text-dark text-opacity-75 mt-1">${code.description}</div>` : ''}
+                                ${code.recommendation ? `<div class="text-dark text-opacity-75"><small><i class="bi bi-lightbulb"></i> ${code.recommendation}</small></div>` : ''}
+                            </div>
+                        `;
+                    });
+                    detailsHtml += '</div>';
+                }
+                
+                // Bounce timeline (last 30 days)
+                if (bounceTimeline.length > 0) {
+                    detailsHtml += '<div class="mb-2">';
+                    detailsHtml += '<small class="text-dark d-block mb-2 fw-bold"><i class="bi bi-graph-up"></i> Bounce Timeline (Last 30 Days):</small>';
+                    bounceTimeline.slice(0, 10).forEach(day => {
+                        const dayDate = new Date(day.bounce_day);
+                        detailsHtml += `
+                            <div class="small mb-1 p-1 bg-white bg-opacity-5 rounded">
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-dark fw-bold">${dayDate.toLocaleDateString()}</span>
+                                    <span class="text-dark">${day.bounce_count} bounce${day.bounce_count !== 1 ? 's' : ''}</span>
+                                </div>
+                                <div class="text-dark text-opacity-75">
+                                    ${day.permanent_count > 0 ? `<span class="text-danger">${day.permanent_count} permanent</span>` : ''}
+                                    ${day.temporary_count > 0 ? `<span class="text-warning ms-2">${day.temporary_count} temporary</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    if (bounceTimeline.length > 10) {
+                        detailsHtml += `<small class="text-dark text-opacity-75">... and ${bounceTimeline.length - 10} more days</small>`;
+                    }
+                    detailsHtml += '</div>';
+                }
+                
+                // Invalid domain email addresses (if applicable)
+                if (isInvalid) {
+                    const toAddresses = domain.associated_to_addresses || [];
+                    const ccAddresses = domain.associated_cc_addresses || [];
+                    const emailPairs = domain.email_pairs || [];
+                    const allEmails = [...new Set([...toAddresses, ...ccAddresses])];
+                    
+                    if (allEmails.length > 0 || emailPairs.length > 0) {
+                        detailsHtml += '<div class="mt-2 p-2 bg-danger bg-opacity-25 rounded">';
+                        detailsHtml += '<small class="fw-bold text-warning d-block mb-1"><i class="bi bi-exclamation-triangle"></i> Associated Email Addresses:</small>';
+                        
+                        if (emailPairs.length > 0) {
+                            emailPairs.forEach(pair => {
+                                detailsHtml += `<div class="small text-dark mb-1">`;
+                                detailsHtml += `<span class="fw-bold">TO:</span> ${pair.to}`;
+                                if (pair.cc) {
+                                    detailsHtml += ` <span class="fw-bold ms-2">CC:</span> ${pair.cc}`;
+                                }
+                                detailsHtml += `</div>`;
+                            });
+                        } else {
+                            if (toAddresses.length > 0) {
+                                detailsHtml += `<div class="small mb-1"><span class="fw-bold text-dark">TO addresses:</span> <span class="text-dark">${toAddresses.join(', ')}</span></div>`;
+                            }
+                            if (ccAddresses.length > 0) {
+                                detailsHtml += `<div class="small mb-1"><span class="fw-bold text-dark">CC addresses:</span> <span class="text-dark">${ccAddresses.join(', ')}</span></div>`;
+                            }
+                        }
+                        detailsHtml += '</div>';
+                    }
+                }
+                
+                detailsHtml += '</div></div>';
             }
             
             item.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start mb-1">
-                    <div class="flex-grow-1">
-                        <div class="fw-bold text-white ${isInvalid ? 'text-danger' : ''}">
-                            ${domain.domain}
-                            ${isInvalid ? '<i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i>' : ''}
+                <div class="p-2 domain-header" style="cursor: pointer;">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <div class="flex-grow-1">
+                            <div class="fw-bold text-white ${isInvalid ? 'text-danger' : ''}">
+                                ${domain.domain}
+                                ${isInvalid ? '<i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i>' : ''}
+                                ${detailsHtml ? '<i class="bi bi-chevron-down ms-2 domain-chevron" style="font-size: 0.75rem; transition: transform 0.3s;"></i>' : ''}
+                            </div>
+                            <small class="text-white-50">Last bounce: ${lastBounceText}</small>
+                            ${isInvalid ? `<small class="d-block text-warning"><i class="bi bi-info-circle"></i> ${domain.validation_reason || 'Invalid domain'}</small>` : ''}
                         </div>
-                        <small class="text-white-50">Last bounce: ${lastBounceText}</small>
-                        ${isInvalid ? `<small class="d-block text-warning"><i class="bi bi-info-circle"></i> ${domain.validation_reason || 'Invalid domain'}</small>` : ''}
+                        <div class="text-end">
+                            <span class="badge bg-secondary me-1" title="Total bounces">${domain.bounce_count}</span>
+                            ${invalidBadge}
+                            <span class="badge badge-trust ${trustClass}" title="Trust score (1-10)">${trustScore10}/10</span>
+                        </div>
                     </div>
-                    <div class="text-end">
-                        <span class="badge bg-secondary me-1" title="Total bounces">${domain.bounce_count}</span>
-                        ${invalidBadge}
-                        <span class="badge badge-trust ${trustClass}" title="Trust score (1-10)">${trustScore10}/10</span>
+                    <div class="d-flex gap-2 mt-1">
+                        ${permanentFailures > 0 ? `<small class="text-white-50"><i class="bi bi-exclamation-triangle"></i> ${permanentFailures} permanent</small>` : ''}
+                        ${temporaryFailures > 0 ? `<small class="text-white-50"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
+                        ${permanentRate > 50 ? `<small class="text-warning"><i class="bi bi-exclamation-circle"></i> ${permanentRate}% permanent rate</small>` : ''}
                     </div>
                 </div>
-                <div class="d-flex gap-2 mt-1">
-                    ${permanentFailures > 0 ? `<small class="text-white-50"><i class="bi bi-exclamation-triangle"></i> ${permanentFailures} permanent</small>` : ''}
-                    ${temporaryFailures > 0 ? `<small class="text-white-50"><i class="bi bi-clock"></i> ${temporaryFailures} temporary</small>` : ''}
-                    ${permanentRate > 50 ? `<small class="text-warning"><i class="bi bi-exclamation-circle"></i> ${permanentRate}% permanent rate</small>` : ''}
-                </div>
-                ${emailAddressesHtml}
+                ${detailsHtml}
             `;
+            
+            // Add click handler for accordion
+            if (detailsHtml) {
+                const header = item.querySelector('.domain-header');
+                const detailsList = item.querySelector('.domain-details-list');
+                const chevron = item.querySelector('.domain-chevron');
+                
+                header.addEventListener('click', function() {
+                    const isExpanded = detailsList.style.display !== 'none';
+                    
+                    if (isExpanded) {
+                        // Collapse
+                        detailsList.style.maxHeight = detailsList.scrollHeight + 'px';
+                        detailsList.offsetHeight; // Force reflow
+                        detailsList.style.maxHeight = '0';
+                        setTimeout(() => {
+                            detailsList.style.display = 'none';
+                        }, 300);
+                        chevron.style.transform = 'rotate(0deg)';
+                    } else {
+                        // Expand
+                        detailsList.style.display = 'block';
+                        detailsList.style.maxHeight = '0';
+                        detailsList.offsetHeight; // Force reflow
+                        detailsList.style.maxHeight = detailsList.scrollHeight + 'px';
+                        chevron.style.transform = 'rotate(180deg)';
+                    }
+                });
+            }
+            
             domainsContainer.appendChild(item);
         });
     }

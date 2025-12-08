@@ -104,6 +104,59 @@ try {
         $domain['associated_to_addresses'] = $toAddresses;
         $domain['associated_cc_addresses'] = $ccAddresses;
         $domain['email_pairs'] = $emailPairs; // TO:CC pairs for invalid domains
+        
+        // Get recent bounces for this domain (last 10)
+        $stmt = $db->prepare("
+            SELECT 
+                b.id,
+                b.bounce_date,
+                b.smtp_code,
+                b.smtp_reason,
+                b.deliverability_status,
+                b.original_to,
+                b.original_subject,
+                sc.description as smtp_description
+            FROM bounces b
+            LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
+            WHERE b.recipient_domain = ?
+            ORDER BY b.bounce_date DESC
+            LIMIT 10
+        ");
+        $stmt->execute([$domain['domain']]);
+        $domain['recent_bounces'] = $stmt->fetchAll();
+        
+        // Get SMTP codes breakdown for this domain
+        $stmt = $db->prepare("
+            SELECT 
+                b.smtp_code,
+                COUNT(*) as count,
+                sc.description,
+                sc.recommendation
+            FROM bounces b
+            LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
+            WHERE b.recipient_domain = ? AND b.smtp_code IS NOT NULL
+            GROUP BY b.smtp_code, sc.description, sc.recommendation
+            ORDER BY count DESC
+        ");
+        $stmt->execute([$domain['domain']]);
+        $domain['smtp_codes'] = $stmt->fetchAll();
+        
+        // Get bounce timeline (last 30 days)
+        $stmt = $db->prepare("
+            SELECT 
+                DATE(bounce_date) as bounce_day,
+                COUNT(*) as bounce_count,
+                COUNT(CASE WHEN deliverability_status = 'permanent_failure' THEN 1 END) as permanent_count,
+                COUNT(CASE WHEN deliverability_status = 'temporary_failure' THEN 1 END) as temporary_count
+            FROM bounces
+            WHERE recipient_domain = ? 
+            AND bounce_date >= datetime('now', '-30 days')
+            GROUP BY DATE(bounce_date)
+            ORDER BY bounce_day DESC
+            LIMIT 30
+        ");
+        $stmt->execute([$domain['domain']]);
+        $domain['bounce_timeline'] = $stmt->fetchAll();
     }
     unset($domain); // Break reference
 
