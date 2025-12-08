@@ -99,7 +99,7 @@ body {
 }
 
 .navbar-brand {
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: -0.02em;
 }
 
@@ -135,28 +135,32 @@ body {
     font-size: 0.7rem;
     padding: 0.35em 0.5em;
     white-space: nowrap;
-    font-weight: 500;
+    font-weight: 700;
 }
 
-/* Ensure header badge text is readable in both themes */
+/* Ensure header badge text is readable in both themes - black text for info and warning */
 #headerStats .badge.bg-info {
     background-color: #0dcaf0 !important;
     color: #000 !important;
+    font-weight: 700 !important;
 }
 
 [data-theme="dark"] #headerStats .badge.bg-info {
     background-color: #0dcaf0 !important;
     color: #000 !important;
+    font-weight: 700 !important;
 }
 
 #headerStats .badge.bg-warning {
     background-color: #ffc107 !important;
     color: #000 !important;
+    font-weight: 700 !important;
 }
 
 [data-theme="dark"] #headerStats .badge.bg-warning {
     background-color: #ffc107 !important;
     color: #000 !important;
+    font-weight: 700 !important;
 }
 
 #headerStats .badge.bg-secondary {
@@ -209,6 +213,16 @@ body {
 #userRoleBadge {
     font-size: 0.7rem;
     padding: 0.25em 0.5em;
+    font-weight: 700;
+}
+
+/* Make all header text bold */
+.navbar .btn,
+.navbar .btn-link,
+.navbar .dropdown-toggle,
+.navbar #userName,
+.navbar .badge {
+    font-weight: 700 !important;
 }
 
 /* Button group responsive */
