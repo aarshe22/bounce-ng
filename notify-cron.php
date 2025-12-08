@@ -20,6 +20,10 @@
  *   4 = Deduplication error
  */
 
+// Change to script directory to ensure relative paths work
+$scriptDir = dirname(__FILE__);
+chdir($scriptDir);
+
 require_once __DIR__ . '/vendor/autoload.php';
 require_once __DIR__ . '/config.php';
 
@@ -33,24 +37,97 @@ $isCli = php_sapi_name() === 'cli';
 
 // Log file path - use data directory (should be writable)
 $dataDir = __DIR__ . '/data';
+$logFile = null;
+$logFileWritable = false;
+
+// Ensure data directory exists and is writable
 if (!is_dir($dataDir)) {
     @mkdir($dataDir, 0755, true);
 }
-$logFile = $dataDir . '/notify-cron.log';
+
+if (is_dir($dataDir)) {
+    $logFile = $dataDir . '/notify-cron.log';
+    // Try to create/write to log file to verify permissions
+    $testWrite = @file_put_contents($logFile, '', FILE_APPEND | LOCK_EX);
+    if ($testWrite !== false) {
+        $logFileWritable = true;
+    }
+}
 
 // Function to log to both file and event log
 function cronLog($level, $message, $eventLogger = null, $userId = null, $mailboxId = null) {
-    global $logFile, $isCli;
+    global $logFile, $logFileWritable, $isCli;
     
     $timestamp = date('Y-m-d H:i:s');
     $logMessage = "[{$timestamp}] [{$level}] [CRON] {$message}\n";
     
-    // Always log to file
-    file_put_contents($logFile, $logMessage, FILE_APPEND);
+    // Always try to log to file if writable
+    if ($logFileWritable && $logFile) {
+        @file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
+    }
     
     // Log to event log if available
     if ($eventLogger) {
-        $eventLogger->log($level, "[CRON] {$message}", $userId, $mailboxId);
+        try {
+            $eventLogger->log($level, "[CRON] {$message}", $userId, $mailboxId);
+        } catch (Exception $e) {
+            // If event log fails, at least try to write to file
+            if ($logFileWritable && $logFile) {
+                @file_put_contents($logFile, "[{$timestamp}] [error] [CRON] Failed to write to event log: {$e->getMessage()}\n", FILE_APPEND | LOCK_EX);
+            }
+        }
+    }
+    
+    // Output to console if CLI
+    if ($isCli) {
+        echo $logMessage;
+    }
+}
+
+// Function to log errors with variable dumps
+function cronLogError($message, $exception = null, $eventLogger = null, $userId = null, $mailboxId = null, $context = []) {
+    global $logFile, $logFileWritable, $isCli;
+    
+    $timestamp = date('Y-m-d H:i:s');
+    $errorDetails = [];
+    
+    if ($exception) {
+        $errorDetails[] = "Exception: " . get_class($exception);
+        $errorDetails[] = "Message: " . $exception->getMessage();
+        $errorDetails[] = "File: " . $exception->getFile();
+        $errorDetails[] = "Line: " . $exception->getLine();
+        $errorDetails[] = "Trace: " . $exception->getTraceAsString();
+    }
+    
+    if (!empty($context)) {
+        $errorDetails[] = "Context variables:";
+        foreach ($context as $key => $value) {
+            $errorDetails[] = "  {$key}: " . (is_scalar($value) ? $value : print_r($value, true));
+        }
+    }
+    
+    $fullMessage = $message;
+    if (!empty($errorDetails)) {
+        $fullMessage .= "\n" . implode("\n", $errorDetails);
+    }
+    
+    $logMessage = "[{$timestamp}] [error] [CRON] {$fullMessage}\n";
+    
+    // Always try to log to file if writable
+    if ($logFileWritable && $logFile) {
+        @file_put_contents($logFile, $logMessage, FILE_APPEND | LOCK_EX);
+    }
+    
+    // Log to event log if available
+    if ($eventLogger) {
+        try {
+            $eventLogger->log('error', "[CRON] {$message}" . ($exception ? ": {$exception->getMessage()}" : ""), $userId, $mailboxId);
+        } catch (Exception $e) {
+            // If event log fails, at least try to write to file
+            if ($logFileWritable && $logFile) {
+                @file_put_contents($logFile, "[{$timestamp}] [error] [CRON] Failed to write to event log: {$e->getMessage()}\n", FILE_APPEND | LOCK_EX);
+            }
+        }
     }
     
     // Output to console if CLI
@@ -84,7 +161,8 @@ if ($isCli) {
     require_once __DIR__ . '/src/Auth.php';
     $auth = new \BounceNG\Auth();
     
-    if (!$auth->isAuthenticated()) {
+    // Check if user is authenticated by checking session
+    if (!isset($_SESSION['user_id'])) {
         http_response_code(401);
         echo json_encode(['success' => false, 'error' => 'Unauthorized']);
         exit(1);
@@ -125,22 +203,62 @@ if ($isCli) {
 }
 
 // Initialize
-$db = Database::getInstance();
-$eventLogger = new EventLogger();
+$db = null;
+$eventLogger = null;
 $exitCode = 0;
 
 // Log script start with detailed info - use 'info' level so it shows in event log
-cronLog('info', "=== CRON SCRIPT STARTED ===", $eventLogger, $userId);
-cronLog('info', "CLI mode: " . ($isCli ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('info', "Process only: " . ($processOnly ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('info', "Send only: " . ($sendOnly ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('info', "Dedupe: " . ($dedupe ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('info', "Web call: " . ($webCall ? 'YES' : 'NO'), $eventLogger, $userId);
-cronLog('info', "User ID: " . ($userId ?? 'NULL'), $eventLogger, $userId);
-cronLog('info', "PHP version: " . PHP_VERSION, $eventLogger, $userId);
-cronLog('info', "Working directory: " . getcwd(), $eventLogger, $userId);
-cronLog('info', "Script path: " . __FILE__, $eventLogger, $userId);
-cronLog('info', "Process ID (PID): " . getmypid(), $eventLogger, $userId);
+cronLog('info', "=== CRON SCRIPT STARTED ===", null, $userId);
+cronLog('info', "CLI mode: " . ($isCli ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Process only: " . ($processOnly ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Send only: " . ($sendOnly ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Dedupe: " . ($dedupe ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Web call: " . ($webCall ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "User ID: " . ($userId ?? 'NULL'), null, $userId);
+cronLog('info', "PHP version: " . PHP_VERSION, null, $userId);
+cronLog('info', "Working directory: " . getcwd(), null, $userId);
+cronLog('info', "Script path: " . __FILE__, null, $userId);
+cronLog('info', "Script directory: " . __DIR__, null, $userId);
+cronLog('info', "Process ID (PID): " . getmypid(), null, $userId);
+cronLog('info', "Current user: " . (function_exists('posix_getpwuid') && function_exists('posix_geteuid') ? posix_getpwuid(posix_geteuid())['name'] : 'unknown'), null, $userId);
+cronLog('info', "Log file: " . ($logFile ?? 'NOT SET'), null, $userId);
+cronLog('info', "Log file writable: " . ($logFileWritable ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Data directory: " . $dataDir, null, $userId);
+cronLog('info', "Data directory exists: " . (is_dir($dataDir) ? 'YES' : 'NO'), null, $userId);
+cronLog('info', "Data directory writable: " . (is_writable($dataDir) ? 'YES' : 'NO'), null, $userId);
+
+// Initialize database and event logger
+try {
+    cronLog('info', "Initializing database connection...", null, $userId);
+    $db = Database::getInstance();
+    cronLog('info', "Database connection established", null, $userId);
+    
+    // Test database connectivity
+    try {
+        $testStmt = $db->query("SELECT 1");
+        $testStmt->fetch();
+        cronLog('info', "Database connectivity test passed", null, $userId);
+    } catch (Exception $e) {
+        cronLogError("Database connectivity test failed", $e, null, $userId, null, [
+            'db_path' => defined('DB_PATH') ? DB_PATH : 'NOT DEFINED'
+        ]);
+        throw $e;
+    }
+    
+    cronLog('info', "Initializing event logger...", null, $userId);
+    $eventLogger = new EventLogger();
+    cronLog('info', "Event logger initialized", $eventLogger, $userId);
+} catch (Exception $e) {
+    cronLogError("Failed to initialize database or event logger", $e, null, $userId, null, [
+        'script_dir' => __DIR__,
+        'working_dir' => getcwd(),
+        'db_path' => defined('DB_PATH') ? DB_PATH : 'NOT DEFINED',
+        'data_dir' => $dataDir,
+        'data_dir_exists' => is_dir($dataDir),
+        'data_dir_writable' => is_writable($dataDir)
+    ]);
+    exit(1);
+}
 
 try {
     // Get test mode settings
@@ -170,6 +288,19 @@ try {
             
             if (empty($mailboxes)) {
                 cronLog('info', "No enabled mailboxes found", $eventLogger, $userId);
+                cronLog('info', "Query executed: SELECT id FROM mailboxes WHERE is_enabled = 1", $eventLogger, $userId);
+                
+                // Check if there are any mailboxes at all
+                $allMailboxesStmt = $db->query("SELECT COUNT(*) as count FROM mailboxes");
+                $allMailboxes = $allMailboxesStmt->fetch();
+                cronLog('info', "Total mailboxes in database: " . ($allMailboxes['count'] ?? 0), $eventLogger, $userId);
+                
+                // Check enabled status
+                $enabledStmt = $db->query("SELECT id, name, is_enabled FROM mailboxes");
+                $allMailboxDetails = $enabledStmt->fetchAll();
+                foreach ($allMailboxDetails as $mb) {
+                    cronLog('info', "Mailbox ID {$mb['id']} ({$mb['name']}): is_enabled = " . ($mb['is_enabled'] ? '1' : '0'), $eventLogger, $userId);
+                }
             } else {
                 cronLog('info', "Found " . count($mailboxes) . " enabled mailbox(es) to process", $eventLogger, $userId);
                 
@@ -178,15 +309,48 @@ try {
                     try {
                         cronLog('info', "Processing mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
                         
-                        $monitor = new MailboxMonitor($mailboxId);
-                        $result = $monitor->processInbox();
-                        $monitor->disconnect();
+                        // Get mailbox details for logging
+                        $mailboxStmt = $db->prepare("SELECT name, email, is_enabled FROM mailboxes WHERE id = ?");
+                        $mailboxStmt->execute([$mailboxId]);
+                        $mailboxDetails = $mailboxStmt->fetch();
                         
-                        cronLog('info', "Mailbox {$mailboxId} processed: {$result['processed']} processed, {$result['skipped']} skipped, {$result['problems']} problems", 
-                            $eventLogger, $userId, $mailboxId);
+                        if ($mailboxDetails) {
+                            cronLog('info', "Mailbox details - Name: {$mailboxDetails['name']}, Email: {$mailboxDetails['email']}, Enabled: {$mailboxDetails['is_enabled']}", 
+                                $eventLogger, $userId, $mailboxId);
+                        }
+                        
+                        cronLog('info', "Creating MailboxMonitor instance for mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
+                        $monitor = new MailboxMonitor($mailboxId);
+                        
+                        cronLog('info', "Calling processInbox() for mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
+                        $result = $monitor->processInbox();
+                        
+                        cronLog('info', "processInbox() returned result: " . print_r($result, true), $eventLogger, $userId, $mailboxId);
+                        
+                        if (!is_array($result)) {
+                            cronLogError("processInbox() returned invalid result (not an array)", null, $eventLogger, $userId, $mailboxId, [
+                                'result_type' => gettype($result),
+                                'result_value' => print_r($result, true)
+                            ]);
+                        } else {
+                            $processed = $result['processed'] ?? 0;
+                            $skipped = $result['skipped'] ?? 0;
+                            $problems = $result['problems'] ?? 0;
+                            
+                            cronLog('info', "Mailbox {$mailboxId} processed: {$processed} processed, {$skipped} skipped, {$problems} problems", 
+                                $eventLogger, $userId, $mailboxId);
+                        }
+                        
+                        cronLog('info', "Disconnecting from mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
+                        $monitor->disconnect();
+                        cronLog('info', "Disconnected from mailbox ID: {$mailboxId}", $eventLogger, $userId, $mailboxId);
+                        
                     } catch (Exception $e) {
-                        $errorMsg = $e->getMessage();
-                        cronLog('error', "Error processing mailbox {$mailboxId}: {$errorMsg}", $eventLogger, $userId, $mailboxId);
+                        cronLogError("Error processing mailbox {$mailboxId}", $e, $eventLogger, $userId, $mailboxId, [
+                            'mailbox_id' => $mailboxId,
+                            'mailbox_name' => $mailboxDetails['name'] ?? 'unknown',
+                            'mailbox_email' => $mailboxDetails['email'] ?? 'unknown'
+                        ]);
                         $exitCode = 2; // Processing error
                         // Continue with other mailboxes
                     }
@@ -195,8 +359,10 @@ try {
             
             cronLog('info', "Mailbox processing phase completed", $eventLogger, $userId);
         } catch (Exception $e) {
-            $errorMsg = $e->getMessage();
-            cronLog('error', "Fatal error during mailbox processing: {$errorMsg}", $eventLogger, $userId);
+            cronLogError("Fatal error during mailbox processing", $e, $eventLogger, $userId, null, [
+                'phase' => 'mailbox_processing',
+                'mailbox_count' => isset($mailboxes) ? count($mailboxes) : 'unknown'
+            ]);
             $exitCode = 2;
         }
     }
@@ -266,8 +432,11 @@ try {
             
             cronLog('info', "Notification sending phase completed", $eventLogger, $userId);
         } catch (Exception $e) {
-            $errorMsg = $e->getMessage();
-            cronLog('error', "Fatal error during notification sending: {$errorMsg}", $eventLogger, $userId);
+            cronLogError("Fatal error during notification sending", $e, $eventLogger, $userId, null, [
+                'phase' => 'notification_sending',
+                'real_time_mode' => isset($realTime) ? ($realTime ? 'YES' : 'NO') : 'unknown',
+                'pending_count' => isset($count) ? $count : 'unknown'
+            ]);
             $exitCode = 3;
         }
     }
@@ -351,11 +520,13 @@ try {
             
             cronLog('info', "Notification deduplication phase completed", $eventLogger, $userId);
         } catch (Exception $e) {
-            if ($db->inTransaction()) {
+            if ($db && $db->inTransaction()) {
                 $db->rollBack();
             }
-            $errorMsg = $e->getMessage();
-            cronLog('error', "Fatal error during notification deduplication: {$errorMsg}", $eventLogger, $userId);
+            cronLogError("Fatal error during notification deduplication", $e, $eventLogger, $userId, null, [
+                'phase' => 'deduplication',
+                'duplicate_pairs_count' => isset($duplicatePairs) ? count($duplicatePairs) : 'unknown'
+            ]);
             $exitCode = 4; // Deduplication error
         }
     }
@@ -368,8 +539,15 @@ try {
     }
     
 } catch (Exception $e) {
-    $errorMsg = $e->getMessage();
-    cronLog('error', "Fatal error in cron script: {$errorMsg}", $eventLogger, $userId);
+    cronLogError("Fatal error in cron script", $e, $eventLogger ?? null, $userId, null, [
+        'script_path' => __FILE__,
+        'working_directory' => getcwd(),
+        'php_version' => PHP_VERSION,
+        'is_cli' => $isCli,
+        'process_only' => $processOnly,
+        'send_only' => $sendOnly,
+        'dedupe' => $dedupe
+    ]);
     $exitCode = 1;
 }
 
