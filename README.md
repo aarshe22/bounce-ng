@@ -38,6 +38,9 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
 - **Dashboard Analytics**: Real-time statistics, interactive timeline charts, and visualizations
 - **BCC Monitoring**: Monitor outbound notifications via BCC in production mode
 - **Interactive Charts**: Button-based zoom controls for timeline visualizations
+- **Bad Addresses Tracking**: View all bounced email addresses with bounce counts, dates, and SMTP codes
+- **CSV Export**: Export bad addresses data to CSV for external analysis
+- **Comprehensive Help System**: Built-in help documentation accessible from the header
 
 ## Features
 
@@ -118,6 +121,14 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Searchable and filterable
   - Client-side pagination
 
+- **Bad Addresses Management**
+  - View all original "To:" email addresses that have bounced
+  - Ordered by bounce count (descending)
+  - Shows first bounce date, last bounce date, bounce count
+  - Displays associated SMTP codes and recipient domains
+  - CSV export with timestamped filename (`bounces-YYYY-MM-DDTHH-MM-SS.csv`)
+  - Color-coded bounce counts for quick identification
+
 ### Advanced Features
 
 - **Cron Job Support**
@@ -142,6 +153,13 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Light and dark themes
   - User preference persistence
   - Smooth theme transitions
+
+- **Help System**
+  - Comprehensive online help accessible from header
+  - Full application documentation
+  - Page-by-page feature descriptions
+  - Button and panel explanations
+  - Modal-based help interface
 
 ## Requirements
 
@@ -435,6 +453,27 @@ The dashboard provides:
 - Sort by date or severity
 - Paginated display (50+ rows per page)
 
+### Bad Addresses
+
+- View all email addresses that have bounced
+- Sorted by bounce count (highest first)
+- Shows bounce statistics:
+  - Email address
+  - Total bounce count
+  - First bounce date
+  - Last bounce date
+  - Associated SMTP codes
+  - Associated recipient domains
+- Color-coded bounce counts:
+  - Red (bold): 10+ bounces
+  - Yellow (bold): 5-9 bounces
+  - Blue: 1-4 bounces
+- Export to CSV:
+  - Click "Export CSV" button
+  - Downloads file named `bounces-YYYY-MM-DDTHH-MM-SS.csv`
+  - Includes all columns with proper CSV formatting
+  - UTF-8 BOM for Excel compatibility
+
 ### Configuration Backup & Restore
 
 **Admin-only feature**
@@ -463,6 +502,7 @@ Backup excludes:
 bounce-ng/
 ├── api/                 # API endpoints
 │   ├── backup.php      # Configuration backup/restore
+│   ├── bad-addresses.php # Bad addresses data
 │   ├── cron.php        # Cron execution endpoint
 │   ├── dashboard.php   # Dashboard data
 │   ├── events.php      # Event log API
@@ -640,6 +680,9 @@ All API endpoints require authentication via session. Admin-only endpoints requi
 #### `/api/backup.php`
 - **GET** `?action=export`: Export configuration (admin)
 - **POST** `?action=import`: Import configuration (admin)
+
+#### `/api/bad-addresses.php`
+- **GET**: Get all bounced email addresses with statistics
 
 ## Database Schema
 
@@ -860,3 +903,9 @@ For issues, questions, or contributions:
 
 **Version**: 1.0.0  
 **Last Updated**: December 2024
+
+---
+
+## Quick Start
+
+For a quick start guide, see [QUICKSTART.md](QUICKSTART.md).

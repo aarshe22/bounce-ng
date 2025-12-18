@@ -2157,6 +2157,7 @@ async function loadNotificationQueue() {
 
 // Store original notifications for filtering/sorting
 let allNotifications = [];
+let badAddressesData = []; // Store bad addresses for CSV export
 
 function displayNotificationQueue(notifications) {
     // Store all notifications for filtering/sorting
@@ -2786,6 +2787,9 @@ function displayBadAddresses(addresses, total) {
     const container = document.getElementById('badAddressesList');
     if (!container) return;
     
+    // Store addresses globally for CSV export
+    badAddressesData = addresses;
+    
     if (addresses.length === 0) {
         container.innerHTML = '<p class="text-muted text-center">No bad addresses found</p>';
         return;
@@ -2846,6 +2850,77 @@ function displayBadAddresses(addresses, total) {
     `;
     
     container.innerHTML = html;
+}
+
+function exportBadAddressesCSV() {
+    if (!badAddressesData || badAddressesData.length === 0) {
+        alert('No data to export. Please load bad addresses first.');
+        return;
+    }
+    
+    // CSV headers
+    const headers = [
+        'Email Address',
+        'Bounce Count',
+        'First Bounce',
+        'Last Bounce',
+        'SMTP Codes',
+        'Domains'
+    ];
+    
+    // Convert data to CSV rows
+    const rows = badAddressesData.map(address => {
+        const firstBounce = address.first_bounce ? new Date(address.first_bounce).toISOString() : '';
+        const lastBounce = address.last_bounce ? new Date(address.last_bounce).toISOString() : '';
+        const smtpCodes = Array.isArray(address.smtp_codes) && address.smtp_codes.length > 0
+            ? address.smtp_codes.filter(code => code && code.trim() !== '').join('; ')
+            : '';
+        const domains = Array.isArray(address.domains) && address.domains.length > 0
+            ? address.domains.filter(domain => domain && domain.trim() !== '').join('; ')
+            : '';
+        
+        // Escape CSV values (handle commas, quotes, newlines)
+        const escapeCsvValue = (value) => {
+            if (value === null || value === undefined) return '';
+            const str = String(value);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        };
+        
+        return [
+            escapeCsvValue(address.original_to),
+            escapeCsvValue(address.bounce_count),
+            escapeCsvValue(firstBounce),
+            escapeCsvValue(lastBounce),
+            escapeCsvValue(smtpCodes),
+            escapeCsvValue(domains)
+        ].join(',');
+    });
+    
+    // Combine headers and rows
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    // Create BOM for UTF-8 to ensure proper encoding in Excel
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    // Generate filename with current datetime
+    const now = new Date();
+    const dateStr = now.toISOString().replace(/[:.]/g, '-').slice(0, -5); // Format: YYYY-MM-DDTHH-MM-SS
+    const filename = `bounces-${dateStr}.csv`;
+    
+    // Create download link
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 function escapeHtml(text) {
