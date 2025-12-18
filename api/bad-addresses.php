@@ -8,11 +8,7 @@ require_once __DIR__ . '/../src/Auth.php';
 header('Content-Type: application/json');
 
 $auth = new \BounceNG\Auth();
-if (!$auth->isAuthenticated()) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit;
-}
+$auth->requireAuth();
 
 try {
     $db = \BounceNG\Database::getInstance();
