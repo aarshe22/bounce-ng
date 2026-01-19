@@ -118,29 +118,95 @@ try {
             
             // Method 3: Try common CLI PHP paths (including Plesk-specific)
             if ($needsFpmDetection) {
-                $commonPaths = [
-                    '/usr/bin/php',
-                    '/usr/local/bin/php',
-                    '/opt/plesk/php/8.3/bin/php',
-                    '/opt/plesk/php/8.2/bin/php',
-                    '/opt/plesk/php/8.1/bin/php',
-                    '/opt/plesk/php/8.0/bin/php',
-                    '/opt/plesk/php/7.4/bin/php',
-                ];
+                // First, try to find PHP in the Plesk directory structure
+                // Plesk might have PHP in different locations
+                if (preg_match('#(/opt/plesk/php/[^/]+)/#', PHP_BINARY, $matches)) {
+                    $pleskBase = $matches[1];
+                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Searching Plesk directory: {$pleskBase}", $userId);
+                    
+                    // Try various possible locations within the Plesk PHP directory
+                    $pleskPaths = [
+                        $pleskBase . '/bin/php',
+                        $pleskBase . '/bin/php-cli',
+                        $pleskBase . '/usr/bin/php',
+                        $pleskBase . '/usr/local/bin/php',
+                    ];
+                    
+                    // Also try to find php executable in the directory
+                    if (is_dir($pleskBase)) {
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk base directory exists, searching for PHP binaries", $userId);
+                        // Try to find php in bin subdirectories
+                        $binDirs = [$pleskBase . '/bin', $pleskBase . '/usr/bin', $pleskBase . '/usr/local/bin'];
+                        foreach ($binDirs as $binDir) {
+                            if (is_dir($binDir)) {
+                                $files = @scandir($binDir);
+                                if ($files) {
+                                    foreach ($files as $file) {
+                                        if ($file === 'php' || $file === 'php-cli') {
+                                            $potentialPath = $binDir . '/' . $file;
+                                            if (file_exists($potentialPath) && is_executable($potentialPath)) {
+                                                $pleskPaths[] = $potentialPath;
+                                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Found potential PHP binary: {$potentialPath}", $userId);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    foreach ($pleskPaths as $path) {
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Checking Plesk path: {$path}", $userId);
+                        if (file_exists($path)) {
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk path exists: {$path}", $userId);
+                            if (is_executable($path)) {
+                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk path is executable: {$path}", $userId);
+                                // Verify it's CLI by checking version output
+                                $testOutput = shell_exec(escapeshellarg($path) . ' -v 2>&1');
+                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk path test output: " . substr($testOutput, 0, 100), $userId);
+                                if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                                    strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                                    $phpBinary = $path;
+                                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP at Plesk path: {$phpBinary}", $userId);
+                                    $needsFpmDetection = false;
+                                    break; // Found it, exit the loop
+                                }
+                            } else {
+                                $eventLogger->log('warning', "[DEBUG] api/cron.php: Plesk path exists but not executable: {$path}", $userId);
+                            }
+                        }
+                    }
+                }
                 
-                foreach ($commonPaths as $path) {
-                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Checking common path: {$path}", $userId);
-                    if (file_exists($path)) {
-                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Path exists: {$path}", $userId);
-                        if (is_executable($path)) {
-                            // Verify it's CLI by checking version output
-                            $testOutput = shell_exec(escapeshellarg($path) . ' -v 2>&1');
-                            if ($testOutput && strpos($testOutput, 'PHP') !== false && 
-                                strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                                $phpBinary = $path;
-                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP at common path: {$phpBinary}", $userId);
-                                $needsFpmDetection = false;
-                                break;
+                // Method 4: Try common system-wide CLI PHP paths
+                if ($needsFpmDetection) {
+                    $commonPaths = [
+                        '/usr/bin/php',
+                        '/usr/local/bin/php',
+                        '/opt/plesk/php/8.3/bin/php',
+                        '/opt/plesk/php/8.2/bin/php',
+                        '/opt/plesk/php/8.1/bin/php',
+                        '/opt/plesk/php/8.0/bin/php',
+                        '/opt/plesk/php/7.4/bin/php',
+                    ];
+                    
+                    foreach ($commonPaths as $path) {
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Checking common path: {$path}", $userId);
+                        if (file_exists($path)) {
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Common path exists: {$path}", $userId);
+                            if (is_executable($path)) {
+                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Common path is executable: {$path}", $userId);
+                                // Verify it's CLI by checking version output
+                                $testOutput = shell_exec(escapeshellarg($path) . ' -v 2>&1');
+                                if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                                    strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                                    $phpBinary = $path;
+                                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP at common path: {$phpBinary}", $userId);
+                                    $needsFpmDetection = false;
+                                    break;
+                                }
+                            } else {
+                                $eventLogger->log('warning', "[DEBUG] api/cron.php: Common path exists but not executable: {$path}", $userId);
                             }
                         }
                     }
