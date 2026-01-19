@@ -100,18 +100,53 @@ try {
                 }
             }
             
-            // Method 2: Try 'which php' command (works for system-wide PHP)
+            // Method 2: Try to resolve 'php' command path (most reliable)
             if ($needsFpmDetection) {
-                $cliPhp = trim(shell_exec('which php 2>/dev/null'));
-                $eventLogger->log('debug', "[DEBUG] api/cron.php: 'which php' returned: " . ($cliPhp ?: 'empty'), $userId);
+                // Try command -v first (more reliable than which)
+                $cliPhp = trim(shell_exec('command -v php 2>/dev/null'));
+                if (empty($cliPhp)) {
+                    $cliPhp = trim(shell_exec('which php 2>/dev/null'));
+                }
+                $eventLogger->log('debug', "[DEBUG] api/cron.php: Resolved 'php' command to: " . ($cliPhp ?: 'empty'), $userId);
+                
                 if (!empty($cliPhp) && file_exists($cliPhp) && is_executable($cliPhp)) {
                     // Verify it's actually CLI by testing
                     $testOutput = shell_exec(escapeshellarg($cliPhp) . ' -v 2>&1');
                     if ($testOutput && strpos($testOutput, 'PHP') !== false && 
                         strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
                         $phpBinary = $cliPhp;
-                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via 'which php': {$phpBinary}", $userId);
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via command resolution: {$phpBinary}", $userId);
                         $needsFpmDetection = false;
+                    } else {
+                        $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path appears to be FPM: {$cliPhp}", $userId);
+                    }
+                } else if (!empty($cliPhp)) {
+                    $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path not accessible: {$cliPhp}", $userId);
+                }
+            }
+            
+            // Method 2b: Try /usr/bin/php directly (common symlink location)
+            if ($needsFpmDetection) {
+                $usrBinPhp = '/usr/bin/php';
+                $eventLogger->log('debug', "[DEBUG] api/cron.php: Checking /usr/bin/php symlink", $userId);
+                if (file_exists($usrBinPhp)) {
+                    // Check if it's a symlink and resolve it
+                    if (is_link($usrBinPhp)) {
+                        $resolved = readlink($usrBinPhp);
+                        if ($resolved && $resolved[0] !== '/') {
+                            // Relative symlink, resolve it
+                            $resolved = dirname($usrBinPhp) . '/' . $resolved;
+                        }
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: /usr/bin/php is symlink to: " . ($resolved ?: 'unknown'), $userId);
+                    }
+                    if (is_executable($usrBinPhp)) {
+                        $testOutput = shell_exec(escapeshellarg($usrBinPhp) . ' -v 2>&1');
+                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                            $phpBinary = $usrBinPhp;
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via /usr/bin/php: {$phpBinary}", $userId);
+                            $needsFpmDetection = false;
+                        }
                     }
                 }
             }
@@ -210,13 +245,13 @@ try {
                 // Method 4: Try common system-wide CLI PHP paths
                 if ($needsFpmDetection) {
                     $commonPaths = [
-                        '/usr/bin/php',
-                        '/usr/local/bin/php',
-                        '/opt/plesk/php/8.3/bin/php',
+                        '/usr/bin/php',  // Common symlink location (checked first)
+                        '/opt/plesk/php/8.3/bin/php',  // Direct Plesk 8.3 path
                         '/opt/plesk/php/8.2/bin/php',
                         '/opt/plesk/php/8.1/bin/php',
                         '/opt/plesk/php/8.0/bin/php',
                         '/opt/plesk/php/7.4/bin/php',
+                        '/usr/local/bin/php',
                     ];
                     
                     foreach ($commonPaths as $path) {
@@ -247,9 +282,21 @@ try {
                     $testOutput = shell_exec('php -v 2>&1');
                     if ($testOutput && strpos($testOutput, 'PHP') !== false && 
                         strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                        $phpBinary = 'php'; // Use 'php' command directly
-                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via 'php' command: {$phpBinary}", $userId);
-                        $needsFpmDetection = false;
+                        // Resolve the actual path of 'php' command
+                        $resolvedPath = trim(shell_exec('command -v php 2>/dev/null'));
+                        if (empty($resolvedPath)) {
+                            $resolvedPath = trim(shell_exec('which php 2>/dev/null'));
+                        }
+                        if (!empty($resolvedPath) && file_exists($resolvedPath) && is_executable($resolvedPath)) {
+                            $phpBinary = $resolvedPath;
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via 'php' command, resolved to: {$phpBinary}", $userId);
+                            $needsFpmDetection = false;
+                        } else {
+                            // Fallback: use 'php' as-is (might work in some environments)
+                            $phpBinary = 'php';
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Using 'php' command directly (could not resolve path)", $userId);
+                            $needsFpmDetection = false;
+                        }
                     } else {
                         $eventLogger->log('warning', "[DEBUG] api/cron.php: 'php' command test output: " . substr($testOutput, 0, 100), $userId);
                     }
@@ -280,22 +327,36 @@ try {
         }
         
         // Final validation: Ensure PHP binary exists and is executable
-        if (!file_exists($phpBinary)) {
-            $errorMsg = "PHP binary not found: {$phpBinary}";
-            error_log($errorMsg);
-            $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'PHP CLI binary not found']);
-            exit(1);
-        }
-        
-        if (!is_executable($phpBinary)) {
-            $errorMsg = "PHP binary not executable: {$phpBinary}";
-            error_log($errorMsg);
-            $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'PHP CLI binary is not executable']);
-            exit(1);
+        // If phpBinary is 'php' (command), skip file checks as it will be resolved at execution time
+        if ($phpBinary !== 'php') {
+            if (!file_exists($phpBinary)) {
+                $errorMsg = "PHP binary not found: {$phpBinary}";
+                error_log($errorMsg);
+                $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'PHP CLI binary not found']);
+                exit(1);
+            }
+            
+            if (!is_executable($phpBinary)) {
+                $errorMsg = "PHP binary not executable: {$phpBinary}";
+                error_log($errorMsg);
+                $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'PHP CLI binary is not executable']);
+                exit(1);
+            }
+        } else {
+            // Validate 'php' command works
+            $testOutput = shell_exec('php -v 2>&1');
+            if (empty($testOutput) || strpos($testOutput, 'PHP') === false) {
+                $errorMsg = "PHP command 'php' is not available or invalid";
+                error_log($errorMsg);
+                $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'PHP CLI command not available']);
+                exit(1);
+            }
         }
         
         // If we replaced the binary, do a final validation to ensure it's CLI
