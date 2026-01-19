@@ -70,22 +70,54 @@ try {
         }
         
         if ($needsFpmDetection) {
-            // Try to find the CLI PHP binary
-            // Method 1: Try 'which php' command (works for system-wide PHP)
-            $cliPhp = trim(shell_exec('which php 2>/dev/null'));
-            if (!empty($cliPhp) && file_exists($cliPhp) && is_executable($cliPhp)) {
-                // Verify it's actually CLI by testing
-                $testOutput = shell_exec(escapeshellarg($cliPhp) . ' -v 2>&1');
-                if ($testOutput && strpos($testOutput, 'PHP') !== false && 
-                    strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                    $phpBinary = $cliPhp;
-                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via 'which php': {$phpBinary}", $userId);
-                    $needsFpmDetection = false;
+            // Method 1: If Plesk path, try to convert FPM path to CLI path first (most reliable for Plesk)
+            // For Plesk: /opt/plesk/php/8.3/sbin/php-fpm -> /opt/plesk/php/8.3/bin/php
+            if (preg_match('#(/opt/plesk/php/[^/]+)/#', PHP_BINARY, $matches)) {
+                $pleskBase = $matches[1];
+                $cliPath = $pleskBase . '/bin/php';
+                $eventLogger->log('debug', "[DEBUG] api/cron.php: Trying Plesk CLI path conversion: {$cliPath}", $userId);
+                
+                if (file_exists($cliPath)) {
+                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk CLI path exists: {$cliPath}", $userId);
+                    if (is_executable($cliPath)) {
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk CLI path is executable: {$cliPath}", $userId);
+                        // Verify it's CLI
+                        $testOutput = shell_exec(escapeshellarg($cliPath) . ' -v 2>&1');
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Plesk CLI test output: " . substr($testOutput, 0, 100), $userId);
+                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                            $phpBinary = $cliPath;
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via Plesk path conversion: {$phpBinary}", $userId);
+                            $needsFpmDetection = false;
+                        } else {
+                            $eventLogger->log('warning', "[DEBUG] api/cron.php: Plesk CLI path exists but appears to be FPM: {$cliPath}", $userId);
+                        }
+                    } else {
+                        $eventLogger->log('warning', "[DEBUG] api/cron.php: Plesk CLI path exists but not executable: {$cliPath}", $userId);
+                    }
+                } else {
+                    $eventLogger->log('warning', "[DEBUG] api/cron.php: Plesk CLI path does not exist: {$cliPath}", $userId);
                 }
             }
             
+            // Method 2: Try 'which php' command (works for system-wide PHP)
             if ($needsFpmDetection) {
-                // Method 2: Try common CLI PHP paths (including Plesk-specific)
+                $cliPhp = trim(shell_exec('which php 2>/dev/null'));
+                $eventLogger->log('debug', "[DEBUG] api/cron.php: 'which php' returned: " . ($cliPhp ?: 'empty'), $userId);
+                if (!empty($cliPhp) && file_exists($cliPhp) && is_executable($cliPhp)) {
+                    // Verify it's actually CLI by testing
+                    $testOutput = shell_exec(escapeshellarg($cliPhp) . ' -v 2>&1');
+                    if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                        strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                        $phpBinary = $cliPhp;
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via 'which php': {$phpBinary}", $userId);
+                        $needsFpmDetection = false;
+                    }
+                }
+            }
+            
+            // Method 3: Try common CLI PHP paths (including Plesk-specific)
+            if ($needsFpmDetection) {
                 $commonPaths = [
                     '/usr/bin/php',
                     '/usr/local/bin/php',
@@ -97,34 +129,19 @@ try {
                 ];
                 
                 foreach ($commonPaths as $path) {
-                    if (file_exists($path) && is_executable($path)) {
-                        // Verify it's CLI by checking version output
-                        $testOutput = shell_exec(escapeshellarg($path) . ' -v 2>&1');
-                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
-                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                            $phpBinary = $path;
-                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP at common path: {$phpBinary}", $userId);
-                            $needsFpmDetection = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // Method 3: If still FPM, try to convert Plesk FPM path to CLI path
-            if ($needsFpmDetection) {
-                // For Plesk: /opt/plesk/php/8.3/sbin/php-fpm -> /opt/plesk/php/8.3/bin/php
-                if (preg_match('#(/opt/plesk/php/[^/]+)/#', PHP_BINARY, $matches)) {
-                    $pleskBase = $matches[1];
-                    $cliPath = $pleskBase . '/bin/php';
-                    if (file_exists($cliPath) && is_executable($cliPath)) {
-                        // Verify it's CLI
-                        $testOutput = shell_exec(escapeshellarg($cliPath) . ' -v 2>&1');
-                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
-                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                            $phpBinary = $cliPath;
-                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via Plesk path conversion: {$phpBinary}", $userId);
-                            $needsFpmDetection = false;
+                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Checking common path: {$path}", $userId);
+                    if (file_exists($path)) {
+                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Path exists: {$path}", $userId);
+                        if (is_executable($path)) {
+                            // Verify it's CLI by checking version output
+                            $testOutput = shell_exec(escapeshellarg($path) . ' -v 2>&1');
+                            if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                                strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                                $phpBinary = $path;
+                                $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP at common path: {$phpBinary}", $userId);
+                                $needsFpmDetection = false;
+                                break;
+                            }
                         }
                     }
                 }
@@ -137,10 +154,25 @@ try {
         $eventLogger->log('debug', "[DEBUG] api/cron.php: Cron script path: {$cronScript}", $userId);
         $eventLogger->log('debug', "[DEBUG] api/cron.php: PHP binary: {$phpBinary}", $userId);
         $eventLogger->log('debug', "[DEBUG] api/cron.php: PHP_BINARY constant: " . PHP_BINARY, $userId);
+        $eventLogger->log('debug', "[DEBUG] api/cron.php: needsFpmDetection: " . ($needsFpmDetection ? 'true' : 'false'), $userId);
+        
+        // If we detected FPM but couldn't find a CLI replacement, fail with clear error
+        // This ensures we don't try to execute with FPM binary
+        if ($needsFpmDetection) {
+            $errorMsg = "Detected PHP-FPM binary but could not find CLI PHP replacement. Original: " . PHP_BINARY;
+            if ($phpBinary !== PHP_BINARY) {
+                $errorMsg .= ", Attempted: " . $phpBinary;
+            }
+            error_log($errorMsg);
+            $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Could not find PHP CLI binary. Please configure cron to use CLI PHP directly.']);
+            exit(1);
+        }
         
         // Final validation: Ensure PHP binary exists and is executable
-        if (!file_exists($phpBinary) || !is_executable($phpBinary)) {
-            $errorMsg = "PHP binary not found or not executable: {$phpBinary}";
+        if (!file_exists($phpBinary)) {
+            $errorMsg = "PHP binary not found: {$phpBinary}";
             error_log($errorMsg);
             $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
             http_response_code(500);
@@ -148,14 +180,12 @@ try {
             exit(1);
         }
         
-        // If we detected FPM but couldn't find a CLI replacement, fail with clear error
-        // This ensures we don't try to execute with FPM binary
-        if ($needsFpmDetection) {
-            $errorMsg = "Detected PHP-FPM binary but could not find CLI PHP replacement. Original: " . PHP_BINARY . ", Attempted: " . $phpBinary;
+        if (!is_executable($phpBinary)) {
+            $errorMsg = "PHP binary not executable: {$phpBinary}";
             error_log($errorMsg);
             $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Could not find PHP CLI binary. Please configure cron to use CLI PHP directly.']);
+            echo json_encode(['success' => false, 'error' => 'PHP CLI binary is not executable']);
             exit(1);
         }
         
