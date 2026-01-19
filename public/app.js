@@ -9,6 +9,9 @@ let eventLogPageSize = 50; // Will be calculated based on viewport
 let eventLogTotalEvents = 0;
 let eventLogAllEvents = []; // Store all events for client-side pagination
 
+// Timezone for event log display (default to UTC, will be loaded from settings)
+window.eventLogTimezone = 'UTC';
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     loadUserInfo();
@@ -268,6 +271,33 @@ function displayEventLogPage() {
         if (event.created_at) {
             try {
                 const date = new Date(event.created_at);
+                // Use configured timezone or default to UTC
+                const timezone = window.eventLogTimezone || 'UTC';
+                
+                // Format date in the configured timezone
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
+                    timeZone: timezone
+                });
+                
+                const parts = formatter.formatToParts(date);
+                const year = parts.find(p => p.type === 'year').value;
+                const month = parts.find(p => p.type === 'month').value;
+                const day = parts.find(p => p.type === 'day').value;
+                const hours = parts.find(p => p.type === 'hour').value;
+                const minutes = parts.find(p => p.type === 'minute').value;
+                const seconds = parts.find(p => p.type === 'second').value;
+                
+                timestampDisplay = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } catch (e) {
+                // Fallback to original format if timezone formatting fails
+                const date = new Date(event.created_at);
                 const year = date.getFullYear();
                 const month = String(date.getMonth() + 1).padStart(2, '0');
                 const day = String(date.getDate()).padStart(2, '0');
@@ -275,8 +305,6 @@ function displayEventLogPage() {
                 const minutes = String(date.getMinutes()).padStart(2, '0');
                 const seconds = String(date.getSeconds()).padStart(2, '0');
                 timestampDisplay = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-            } catch (e) {
-                timestampDisplay = event.created_at;
             }
         }
         
@@ -434,6 +462,11 @@ async function loadSettings() {
             if (settings.bcc_monitoring_enabled === '1') {
                 document.getElementById('bccMonitoringEmails').style.display = 'block';
             }
+
+            // Load timezone setting
+            const timezone = settings.event_log_timezone || 'UTC';
+            document.getElementById('timezoneSelect').value = timezone;
+            window.eventLogTimezone = timezone; // Store globally for timestamp formatting
         }
     } catch (error) {
         console.error('Error loading settings:', error);
@@ -504,6 +537,33 @@ async function saveBccMonitoringSettings() {
     } catch (error) {
         console.error('Error saving BCC monitoring settings:', error);
         addEventLogMessage('error', 'Failed to save BCC monitoring settings');
+        alert('Error: ' + error.message);
+    }
+}
+
+async function saveTimezoneSetting() {
+    const timezone = document.getElementById('timezoneSelect').value;
+    
+    try {
+        const response = await fetch('/api/settings.php?action=set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'event_log_timezone', value: timezone })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            window.eventLogTimezone = timezone; // Update global timezone
+            alert('Timezone saved successfully');
+            addEventLogMessage('success', 'Timezone setting saved');
+            // Reload event log to apply new timezone
+            loadEventLog();
+        } else {
+            throw new Error(data.error || 'Failed to save timezone');
+        }
+    } catch (error) {
+        console.error('Error saving timezone:', error);
+        addEventLogMessage('error', 'Failed to save timezone setting');
         alert('Error: ' + error.message);
     }
 }

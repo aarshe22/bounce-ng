@@ -112,6 +112,36 @@
                                     <small class="text-muted">When disabled, notifications are queued for manual sending</small>
                                 </div>
 
+                                <div class="mb-3">
+                                    <label class="form-label">Event Log Timezone</label>
+                                    <select class="form-select" id="timezoneSelect">
+                                        <option value="UTC">UTC</option>
+                                        <option value="America/New_York">Eastern Time (US)</option>
+                                        <option value="America/Chicago">Central Time (US)</option>
+                                        <option value="America/Denver">Mountain Time (US)</option>
+                                        <option value="America/Los_Angeles">Pacific Time (US)</option>
+                                        <option value="America/Toronto">Eastern Time (Canada)</option>
+                                        <option value="America/Vancouver">Pacific Time (Canada)</option>
+                                        <option value="Europe/London">London (GMT/BST)</option>
+                                        <option value="Europe/Paris">Paris (CET/CEST)</option>
+                                        <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                                        <option value="Europe/Madrid">Madrid (CET/CEST)</option>
+                                        <option value="Europe/Rome">Rome (CET/CEST)</option>
+                                        <option value="Asia/Tokyo">Tokyo (JST)</option>
+                                        <option value="Asia/Shanghai">Shanghai (CST)</option>
+                                        <option value="Asia/Hong_Kong">Hong Kong (HKT)</option>
+                                        <option value="Asia/Singapore">Singapore (SGT)</option>
+                                        <option value="Asia/Dubai">Dubai (GST)</option>
+                                        <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+                                        <option value="Australia/Melbourne">Melbourne (AEDT/AEST)</option>
+                                        <option value="Pacific/Auckland">Auckland (NZDT/NZST)</option>
+                                    </select>
+                                    <small class="text-muted">Timezone for displaying event log timestamps</small>
+                                    <button class="btn btn-sm btn-primary mt-2" onclick="saveTimezoneSetting()">
+                                        <i class="bi bi-save"></i> Save Timezone
+                                    </button>
+                                </div>
+
                                 <hr>
 
                                 <div class="row g-3 mb-3">
