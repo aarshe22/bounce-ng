@@ -109,19 +109,35 @@ try {
                 }
                 $eventLogger->log('debug', "[DEBUG] api/cron.php: Resolved 'php' command to: " . ($cliPhp ?: 'empty'), $userId);
                 
-                if (!empty($cliPhp) && file_exists($cliPhp) && is_executable($cliPhp)) {
-                    // Verify it's actually CLI by testing
-                    $testOutput = shell_exec(escapeshellarg($cliPhp) . ' -v 2>&1');
-                    if ($testOutput && strpos($testOutput, 'PHP') !== false && 
-                        strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
-                        $phpBinary = $cliPhp;
-                        $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via command resolution: {$phpBinary}", $userId);
-                        $needsFpmDetection = false;
+                if (!empty($cliPhp)) {
+                    // Check if file is accessible
+                    $fileAccessible = file_exists($cliPhp) && is_executable($cliPhp);
+                    $eventLogger->log('debug', "[DEBUG] api/cron.php: Resolved path accessible: " . ($fileAccessible ? 'yes' : 'no'), $userId);
+                    
+                    if ($fileAccessible) {
+                        // Verify it's actually CLI by testing
+                        $testOutput = shell_exec(escapeshellarg($cliPhp) . ' -v 2>&1');
+                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                            $phpBinary = $cliPhp;
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Found CLI PHP via command resolution: {$phpBinary}", $userId);
+                            $needsFpmDetection = false;
+                        } else {
+                            $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path appears to be FPM: {$cliPhp}", $userId);
+                        }
                     } else {
-                        $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path appears to be FPM: {$cliPhp}", $userId);
+                        // File not accessible, but command might still work - test it
+                        $testOutput = shell_exec('php -v 2>&1');
+                        if ($testOutput && strpos($testOutput, 'PHP') !== false && 
+                            strpos($testOutput, 'fpm') === false && strpos($testOutput, 'FastCGI') === false) {
+                            // Use 'php' command directly since it works even if file isn't accessible
+                            $phpBinary = 'php';
+                            $eventLogger->log('debug', "[DEBUG] api/cron.php: Using 'php' command (resolved to {$cliPhp} but not accessible, command works)", $userId);
+                            $needsFpmDetection = false;
+                        } else {
+                            $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path not accessible and command test failed: {$cliPhp}", $userId);
+                        }
                     }
-                } else if (!empty($cliPhp)) {
-                    $eventLogger->log('warning', "[DEBUG] api/cron.php: Resolved PHP path not accessible: {$cliPhp}", $userId);
                 }
             }
             
@@ -362,12 +378,20 @@ try {
         // If we replaced the binary, do a final validation to ensure it's CLI
         // (We already validated during detection, but this is a safety check)
         if ($phpBinary !== PHP_BINARY) {
-            $testScript = "<?php echo 'CLI_OK';";
-            $testResult = shell_exec(escapeshellarg($phpBinary) . ' -r ' . escapeshellarg($testScript) . ' 2>&1');
+            // For -r flag, don't include <?php tag - just the code
+            $testScript = "echo 'CLI_OK';";
+            // Build command differently for 'php' command vs full path
+            if ($phpBinary === 'php') {
+                $command = 'php -r ' . escapeshellarg($testScript) . ' 2>&1';
+            } else {
+                $command = escapeshellarg($phpBinary) . ' -r ' . escapeshellarg($testScript) . ' 2>&1';
+            }
+            $testResult = shell_exec($command);
             if (trim($testResult) !== 'CLI_OK') {
                 $errorMsg = "Replacement PHP binary validation failed. Test result: " . substr($testResult, 0, 200);
                 error_log($errorMsg);
                 $eventLogger->log('error', "[DEBUG] api/cron.php: {$errorMsg}", $userId);
+                $eventLogger->log('debug', "[DEBUG] api/cron.php: Command used: {$command}", $userId);
                 http_response_code(500);
                 echo json_encode(['success' => false, 'error' => 'Invalid PHP CLI binary detected']);
                 exit(1);
