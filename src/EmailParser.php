@@ -689,6 +689,32 @@ class EmailParser {
             }
         }
         
+        // FALLBACK: If no CC addresses found, check Reply-To header
+        // For Outlook emails, Reply-To may contain the actual CC address
+        if (empty($ccAddresses) && isset($this->parsedData['reply-to'])) {
+            $replyTo = is_array($this->parsedData['reply-to']) 
+                ? $this->parsedData['reply-to'][0] 
+                : $this->parsedData['reply-to'];
+            
+            if (!empty($replyTo)) {
+                // Extract email addresses from Reply-To
+                $replyToEmails = $this->parseEmailList($replyTo);
+                
+                // Get the original To address for comparison
+                $originalToLower = $originalTo ? strtolower(trim($originalTo)) : null;
+                
+                // Add Reply-To email(s) if they don't match the To address
+                foreach ($replyToEmails as $replyToEmail) {
+                    $replyToEmailLower = strtolower(trim($replyToEmail));
+                    // Only add if it's a valid email and different from To address
+                    if (filter_var($replyToEmail, FILTER_VALIDATE_EMAIL) && 
+                        $replyToEmailLower !== $originalToLower) {
+                        $ccAddresses[] = $replyToEmail;
+                    }
+                }
+            }
+        }
+        
         // Normalize and deduplicate
         $ccAddresses = array_map('strtolower', array_map('trim', $ccAddresses));
         $ccAddresses = array_unique(array_filter($ccAddresses, function($email) {
