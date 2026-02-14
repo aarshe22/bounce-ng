@@ -105,6 +105,15 @@
                                 </div>
 
                                 <div class="mb-3">
+                                    <label class="form-label">Send Test Email</label>
+                                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                                        <input type="email" class="form-control" id="testEmailInput" placeholder="test@example.com" style="max-width: 280px;">
+                                        <button type="button" class="btn btn-sm btn-primary" id="sendTestEmailBtn" onclick="sendTestEmail()">Send Test Email</button>
+                                    </div>
+                                    <small class="text-muted">Sends a test message using the same SMTP profile as notifications (first active relay)</small>
+                                </div>
+
+                                <div class="mb-3">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="notificationModeToggle">
                                         <label class="form-check-label" for="notificationModeToggle">Real-time Notifications</label>

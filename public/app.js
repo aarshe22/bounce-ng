@@ -541,6 +541,48 @@ async function saveBccMonitoringSettings() {
     }
 }
 
+async function sendTestEmail() {
+    const input = document.getElementById('testEmailInput');
+    const btn = document.getElementById('sendTestEmailBtn');
+    const email = (input && input.value) ? input.value.trim() : '';
+    if (!email) {
+        alert('Please enter a test email address');
+        return;
+    }
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+        alert('Please enter a valid email address');
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+    }
+    try {
+        const response = await fetch('/api/settings.php?action=send-test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', 'Test email sent to ' + email);
+            alert('Test email sent. Check your inbox.');
+        } else {
+            addEventLogMessage('error', 'Send test email failed: ' + (data.error || 'Unknown error'));
+            alert('Failed to send test email: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error sending test email:', error);
+        addEventLogMessage('error', 'Failed to send test email: ' + error.message);
+        alert('Error: ' + error.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Send Test Email';
+        }
+    }
+}
+
 async function saveTimezoneSetting() {
     const timezone = document.getElementById('timezoneSelect').value;
     

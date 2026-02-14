@@ -215,6 +215,74 @@ class NotificationSender {
         // If not real-time, notifications stay in queue for manual sending
     }
 
+    /**
+     * Send a test email using the same SMTP profile as notifications.
+     * Uses the first active relay provider if $relayProviderId is null.
+     *
+     * @param string $toEmail Recipient email address
+     * @param int|null $relayProviderId Optional relay provider ID; if null, first active relay is used
+     * @return bool True on success
+     * @throws \Exception If no relay configured, invalid email, or send failure
+     */
+    public function sendTestEmail($toEmail, $relayProviderId = null) {
+        $toEmail = trim($toEmail);
+        if (empty($toEmail) || !filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new \Exception("Invalid email address");
+        }
+
+        $relayProviderId = $relayProviderId ?: $this->relayProviderId;
+        if (!$relayProviderId) {
+            $stmt = $this->db->query("SELECT id FROM relay_providers WHERE is_active = 1 ORDER BY id ASC LIMIT 1");
+            $row = $stmt->fetch();
+            if (!$row) {
+                throw new \Exception("No active relay provider configured. Add an SMTP relay in Control Panel → Relay Providers.");
+            }
+            $relayProviderId = (int)$row['id'];
+        }
+
+        $stmt = $this->db->prepare("SELECT * FROM relay_providers WHERE id = ? AND is_active = 1");
+        $stmt->execute([$relayProviderId]);
+        $relayProvider = $stmt->fetch();
+        if (!$relayProvider) {
+            throw new \Exception("Relay provider not found or inactive");
+        }
+
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host = $relayProvider['smtp_host'];
+            $mail->SMTPAuth = true;
+            $mail->Username = $relayProvider['smtp_username'];
+            $mail->Password = $relayProvider['smtp_password'];
+            $encryption = strtolower($relayProvider['smtp_encryption']);
+            if ($encryption === 'ssl') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            } else {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            }
+            $mail->Port = (int)$relayProvider['smtp_port'];
+
+            $fromEmail = $relayProvider['smtp_from_email'];
+            $fromName = $relayProvider['smtp_from_name'];
+            $mail->setFrom($fromEmail, $fromName);
+            $mail->addReplyTo($fromEmail, $fromName);
+            $mail->addAddress($toEmail);
+
+            $mail->Subject = 'Bounce Monitor – Test Email';
+            $mail->Body = "This is a test email from Bounce Monitor.\r\n\r\nYour SMTP configuration is working correctly.";
+            $mail->isHTML(false);
+            $mail->CharSet = 'UTF-8';
+            $mail->addCustomHeader('X-Mailer', 'Bounce Monitor System');
+
+            $mail->send();
+            $this->eventLogger->log('success', "Test email sent to {$toEmail}", null, null, null);
+            return true;
+        } catch (PHPMailerException $e) {
+            $this->eventLogger->log('error', "Failed to send test email: {$e->getMessage()}", null, null, null);
+            throw new \Exception($e->getMessage());
+        }
+    }
+
     private function replaceTemplateVars($template, $data, $recommendation = '') {
         $replacements = [
             '{{original_to}}' => $data['original_to'] ?? '',

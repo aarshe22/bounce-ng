@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config.php';
 
 use BounceNG\Auth;
 use BounceNG\Database;
+use BounceNG\NotificationSender;
 
 header('Content-Type: application/json');
 
@@ -46,9 +47,17 @@ try {
         case 'POST':
         case 'PUT':
             $auth->requireAdmin();
-            $data = json_decode(file_get_contents('php://input'), true);
+            $data = json_decode(file_get_contents('php://input'), true) ?? [];
             
-            if ($path === 'set') {
+            if ($path === 'send-test') {
+                $email = trim($data['email'] ?? '');
+                if (empty($email)) {
+                    throw new Exception("Email address is required");
+                }
+                $sender = new NotificationSender();
+                $sender->sendTestEmail($email);
+                echo json_encode(['success' => true, 'message' => 'Test email sent']);
+            } elseif ($path === 'set') {
                 $key = $data['key'] ?? null;
                 $value = $data['value'] ?? null;
                 
