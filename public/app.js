@@ -103,7 +103,7 @@ function switchView(viewName) {
     });
     
     // Remove active class from all buttons
-    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn, #viewNotificationsBtn, #viewBadAddressesBtn').forEach(btn => {
+    document.querySelectorAll('#viewControlsBtn, #viewDashboardBtn, #viewEventsBtn, #viewNotificationsBtn, #viewBadAddressesBtn, #viewBounceLogBtn').forEach(btn => {
         btn.classList.remove('active');
     });
     
@@ -142,6 +142,11 @@ function switchView(viewName) {
         document.getElementById('viewBadAddresses').style.display = 'block';
         document.getElementById('viewBadAddressesBtn').classList.add('active');
         loadBadAddresses();
+    } else if (viewName === 'bounceLog') {
+        document.getElementById('viewBounceLog').style.display = 'block';
+        document.getElementById('viewBounceLogBtn').classList.add('active');
+        initBounceLogHandlers();
+        loadBounceLog();
     }
 }
 
@@ -488,6 +493,8 @@ async function loadSettings() {
                     if (mssqlPassword) mssqlPassword.value = m.mssql_password || ''; // masked as ******** when stored
                     const mssqlTrustCert = document.getElementById('mssqlTrustCertificate');
                     if (mssqlTrustCert) mssqlTrustCert.checked = m.mssql_trust_certificate === '1';
+                    const mssqlExclude = document.getElementById('mssqlExcludeSmtpCodes');
+                    if (mssqlExclude) mssqlExclude.value = m.mssql_exclude_smtp_codes || '';
                 }
             } catch (e) {
                 console.warn('Could not load MSSQL config:', e);
@@ -517,7 +524,8 @@ async function saveMssqlSettings() {
                 mssql_table: table,
                 mssql_username: username,
                 mssql_password: password,
-                mssql_trust_certificate: trustCert ? '1' : '0'
+                mssql_trust_certificate: trustCert ? '1' : '0',
+                mssql_exclude_smtp_codes: document.getElementById('mssqlExcludeSmtpCodes')?.value?.trim() || ''
             })
         });
         const data = await response.json();
@@ -1904,8 +1912,32 @@ function zoomDomainChart(action) {
 }
 
 function displayDashboard(data) {
-    // Top domains - enhanced display
+    // Preserve accordion expanded state across refresh (e.g. 10s poll)
     const domainsContainer = document.getElementById('topDomains');
+    const codesContainerEl = document.getElementById('topSmtpCodes');
+    const expandedDomainIndices = new Set();
+    const expandedSmtpCodeIndices = new Set();
+    if (domainsContainer) {
+        domainsContainer.querySelectorAll('.domain-item[data-domain-index]').forEach(el => {
+            const list = el.querySelector('.domain-details-list');
+            if (list && list.style.display !== 'none' && list.style.maxHeight !== '0px') {
+                const idx = el.getAttribute('data-domain-index');
+                if (idx !== null) expandedDomainIndices.add(parseInt(idx, 10));
+            }
+        });
+    }
+    if (codesContainerEl) {
+        codesContainerEl.querySelectorAll('.smtp-code-item[data-code-index]').forEach(el => {
+            const list = el.querySelector('.smtp-domains-list');
+            if (list && list.style.display !== 'none' && list.style.maxHeight !== '0px') {
+                const idx = el.getAttribute('data-code-index');
+                if (idx !== null) expandedSmtpCodeIndices.add(parseInt(idx, 10));
+            }
+        });
+    }
+
+    // Top domains - enhanced display
+    if (!domainsContainer) return;
     domainsContainer.innerHTML = '';
     
     if (data.domains.length === 0) {
@@ -2107,7 +2139,8 @@ function displayDashboard(data) {
                 const detailsList = item.querySelector('.domain-details-list');
                 const chevron = item.querySelector('.domain-chevron');
                 
-                header.addEventListener('click', function() {
+                header.addEventListener('click', function(e) {
+                    e.stopPropagation();
                     const isExpanded = detailsList.style.display !== 'none';
                     
                     if (isExpanded) {
@@ -2131,6 +2164,18 @@ function displayDashboard(data) {
             }
             
             domainsContainer.appendChild(item);
+            // Re-expand if this index was expanded before refresh
+            if (detailsHtml && expandedDomainIndices.has(index)) {
+                const detailsList = item.querySelector('.domain-details-list');
+                const chevron = item.querySelector('.domain-chevron');
+                if (detailsList && chevron) {
+                    detailsList.style.display = 'block';
+                    detailsList.style.maxHeight = '0';
+                    detailsList.offsetHeight;
+                    detailsList.style.maxHeight = detailsList.scrollHeight + 'px';
+                    chevron.style.transform = 'rotate(180deg)';
+                }
+            }
         });
     }
     
@@ -2156,7 +2201,7 @@ function displayDashboard(data) {
     data.smtpCodes.forEach((code, index) => {
         const item = document.createElement('div');
         item.className = 'mb-2 rounded smtp-code-item p-2';
-        item.setAttribute('data-code-index', index);
+        item.setAttribute('data-code-index', String(index));
         
         const description = code.description || 'No description available';
         const codeColor = getCodeColor(code.smtp_code);
@@ -2231,13 +2276,13 @@ function displayDashboard(data) {
             const domainsList = item.querySelector('.smtp-domains-list');
             const chevron = item.querySelector('.smtp-chevron');
             
-            header.addEventListener('click', function() {
+            header.addEventListener('click', function(e) {
+                e.stopPropagation();
                 const isExpanded = domainsList.style.display !== 'none';
                 
                 if (isExpanded) {
                     // Collapse
                     domainsList.style.maxHeight = domainsList.scrollHeight + 'px';
-                    // Force reflow
                     domainsList.offsetHeight;
                     domainsList.style.maxHeight = '0';
                     setTimeout(() => {
@@ -2248,7 +2293,6 @@ function displayDashboard(data) {
                     // Expand
                     domainsList.style.display = 'block';
                     domainsList.style.maxHeight = '0';
-                    // Force reflow
                     domainsList.offsetHeight;
                     domainsList.style.maxHeight = domainsList.scrollHeight + 'px';
                     chevron.style.transform = 'rotate(180deg)';
@@ -2257,6 +2301,18 @@ function displayDashboard(data) {
         }
         
         codesContainer.appendChild(item);
+        // Re-expand if this index was expanded before refresh
+        if (domains.length > 0 && expandedSmtpCodeIndices.has(index)) {
+            const domainsList = item.querySelector('.smtp-domains-list');
+            const chevron = item.querySelector('.smtp-chevron');
+            if (domainsList && chevron) {
+                domainsList.style.display = 'block';
+                domainsList.style.maxHeight = '0';
+                domainsList.offsetHeight;
+                domainsList.style.maxHeight = domainsList.scrollHeight + 'px';
+                chevron.style.transform = 'rotate(180deg)';
+            }
+        }
     });
     
     // Render timeline charts
@@ -2960,6 +3016,152 @@ function showHelp() {
     
     const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
     helpModal.show();
+}
+
+// Bounce Log
+let bounceLogData = [];
+const BOUNCE_LOG_LIMIT = 2000;
+
+async function loadBounceLog() {
+    const tbody = document.getElementById('bounceLogBody');
+    const paginationEl = document.getElementById('bounceLogPagination');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</td></tr>';
+    const search = document.getElementById('bounceLogSearch')?.value?.trim() || '';
+    const sort = document.getElementById('bounceLogSort')?.value || 'bounce_date';
+    const order = document.getElementById('bounceLogOrder')?.value || 'DESC';
+    try {
+        const params = new URLSearchParams({ sort, order, limit: BOUNCE_LOG_LIMIT, offset: 0 });
+        if (search) params.set('search', search);
+        const response = await fetch('/api/bounces.php?' + params.toString());
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Failed to load');
+        bounceLogData = data.data || [];
+        const total = data.total || 0;
+        renderBounceLogTable(bounceLogData, total);
+        if (paginationEl) {
+            paginationEl.textContent = `Showing ${bounceLogData.length} of ${total} bounces`;
+        }
+    } catch (error) {
+        console.error('Bounce log load error:', error);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">' + error.message + '</td></tr>';
+        if (paginationEl) paginationEl.textContent = '';
+    }
+}
+
+function renderBounceLogTable(rows, total) {
+    const tbody = document.getElementById('bounceLogBody');
+    const selectAll = document.getElementById('bounceLogSelectAll');
+    if (!tbody) return;
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No bounces found</td></tr>';
+        if (selectAll) selectAll.checked = false;
+        return;
+    }
+    tbody.innerHTML = rows.map((row, i) => {
+        const date = row.bounce_date ? new Date(row.bounce_date).toLocaleString() : '';
+        const status = row.deliverability_status || '';
+        const statusClass = status === 'permanent_failure' ? 'danger' : status === 'temporary_failure' ? 'warning' : 'secondary';
+        const reason = (row.smtp_reason || '').substring(0, 120) + ((row.smtp_reason || '').length > 120 ? '…' : '');
+        return `<tr>
+            <td><input type="checkbox" class="bounce-log-row-check" data-index="${i}" /></td>
+            <td>${date}</td>
+            <td>${escapeHtml(row.original_to || '')}</td>
+            <td>${escapeHtml(row.recipient_domain || '')}</td>
+            <td><span class="badge bg-${statusClass}">${escapeHtml(row.smtp_code || '')}</span></td>
+            <td class="small text-muted" title="${escapeHtml(row.smtp_reason || '')}">${escapeHtml(reason)}</td>
+            <td><span class="badge bg-${statusClass}">${escapeHtml(status)}</span></td>
+        </tr>`;
+    }).join('');
+    if (selectAll) selectAll.checked = false;
+}
+
+function escapeHtml(s) {
+    if (s == null) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+function applyBounceLogFilters() {
+    loadBounceLog();
+}
+
+function initBounceLogHandlers() {
+    const bounceLogSort = document.getElementById('bounceLogSort');
+    const bounceLogOrder = document.getElementById('bounceLogOrder');
+    if (bounceLogSort && !bounceLogSort.dataset.bound) {
+        bounceLogSort.dataset.bound = '1';
+        bounceLogSort.addEventListener('change', loadBounceLog);
+    }
+    if (bounceLogOrder && !bounceLogOrder.dataset.bound) {
+        bounceLogOrder.dataset.bound = '1';
+        bounceLogOrder.addEventListener('change', loadBounceLog);
+    }
+    const bounceLogSearch = document.getElementById('bounceLogSearch');
+    if (bounceLogSearch && !bounceLogSearch.dataset.bound) {
+        bounceLogSearch.dataset.bound = '1';
+        let searchTimeout;
+        bounceLogSearch.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(loadBounceLog, 400);
+        });
+    }
+    const bounceLogSelectAll = document.getElementById('bounceLogSelectAll');
+    if (bounceLogSelectAll && !bounceLogSelectAll.dataset.bound) {
+        bounceLogSelectAll.dataset.bound = '1';
+        bounceLogSelectAll.addEventListener('change', function() {
+            document.querySelectorAll('.bounce-log-row-check').forEach(cb => { cb.checked = this.checked; });
+        });
+    }
+    document.querySelectorAll('#bounceLogTable thead th[data-sort]').forEach(th => {
+        if (th.dataset.bound) return;
+        th.dataset.bound = '1';
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', function() {
+            const sort = this.getAttribute('data-sort');
+            const sortSelect = document.getElementById('bounceLogSort');
+            const orderSelect = document.getElementById('bounceLogOrder');
+            if (sortSelect) sortSelect.value = sort;
+            if (orderSelect) orderSelect.value = orderSelect.value === 'ASC' ? 'DESC' : 'ASC';
+            loadBounceLog();
+        });
+    });
+}
+
+async function syncSelectedBouncesToMssql() {
+    const checked = document.querySelectorAll('.bounce-log-row-check:checked');
+    const emails = Array.from(checked).map(cb => {
+        const idx = parseInt(cb.getAttribute('data-index'), 10);
+        const row = bounceLogData[idx];
+        return row && row.original_to ? row.original_to.trim() : null;
+    }).filter(Boolean);
+    if (emails.length === 0) {
+        alert('Select one or more rows (email addresses) to sync to BadAddresses.');
+        return;
+    }
+    const btn = document.getElementById('bounceLogSyncSelectedBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Syncing…'; }
+    try {
+        const response = await fetch('/api/mssql-sync.php?action=sync-selected', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails })
+        });
+        const data = await response.json();
+        if (data.success) {
+            const d = data.data || {};
+            addEventLogMessage('success', 'MSSQL sync (selected): ' + (d.success || 0) + ' address(es) synced');
+            alert((d.success || 0) + ' address(es) synced to BadAddresses.' + (d.errors && d.errors.length ? ' ' + d.errors.length + ' error(s).' : ''));
+        } else {
+            throw new Error(data.error || 'Sync failed');
+        }
+    } catch (error) {
+        addEventLogMessage('error', 'MSSQL sync (selected) failed: ' + error.message);
+        alert('Sync failed: ' + error.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Sync selected to BadAddresses'; }
+    }
 }
 
 // Bad Addresses

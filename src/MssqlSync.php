@@ -26,7 +26,7 @@ class MssqlSync {
         if ($this->config !== null) {
             return $this->config;
         }
-        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
+        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate', 'mssql_exclude_smtp_codes'];
         $config = [];
         foreach ($keys as $key) {
             $stmt = $this->db->prepare("SELECT value FROM settings WHERE key = ?");
@@ -135,6 +135,16 @@ class MssqlSync {
         ");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $excludeCodes = [];
+        $excludeStr = trim($this->getConfig()['mssql_exclude_smtp_codes'] ?? '');
+        if ($excludeStr !== '') {
+            foreach (array_map('trim', explode(',', $excludeStr)) as $code) {
+                if ($code !== '') {
+                    $excludeCodes[$code] = true;
+                }
+            }
+        }
+
         $byEmail = [];
         foreach ($rows as $r) {
             $email = trim($r['original_to']);
@@ -142,6 +152,10 @@ class MssqlSync {
                 continue;
             }
             if (isset($byEmail[$email])) {
+                continue;
+            }
+            $smtpCode = trim($r['smtp_code'] ?? '');
+            if (isset($excludeCodes[$smtpCode])) {
                 continue;
             }
             $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
@@ -157,6 +171,76 @@ class MssqlSync {
     private function formatReason($code, $reason, $description) {
         $parts = array_filter([$code, $reason ?: $description]);
         return implode(' - ', $parts) ?: 'Hard bounce';
+    }
+
+    /**
+     * Get latest bounce per email for given addresses (any deliverability). Used for manual "sync selected" from Bounce Log.
+     *
+     * @param string[] $emails
+     * @return array<array{email: string, last_updated: string, reason: string}>
+     */
+    public function getAddressesForSync(array $emails) {
+        $emails = array_filter(array_map('trim', $emails));
+        if (empty($emails)) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($emails), '?'));
+        $stmt = $this->db->prepare("
+            SELECT b.original_to, b.bounce_date, b.smtp_code, b.smtp_reason, sc.description as smtp_description
+            FROM bounces b
+            LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
+            WHERE b.original_to IN ({$placeholders})
+            ORDER BY b.bounce_date DESC
+        ");
+        $stmt->execute(array_values($emails));
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $byEmail = [];
+        foreach ($rows as $r) {
+            $email = trim($r['original_to']);
+            if ($email === '' || isset($byEmail[$email])) {
+                continue;
+            }
+            $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
+            $byEmail[$email] = [
+                'email' => $email,
+                'last_updated' => $r['bounce_date'],
+                'reason' => $reason,
+            ];
+        }
+        return array_values($byEmail);
+    }
+
+    /**
+     * Sync selected email addresses to MSSQL (from Bounce Log). Uses latest bounce per email.
+     *
+     * @param string[] $emails
+     * @return array{success: int, updated: int, errors: array}
+     */
+    public function syncSelectedToMssql(array $emails) {
+        $addresses = $this->getAddressesForSync($emails);
+        if (empty($addresses)) {
+            return ['success' => 0, 'updated' => 0, 'errors' => []];
+        }
+        $config = $this->getConfig();
+        $table = trim($config['mssql_table'] ?? '');
+        if ($table === '') {
+            throw new \Exception("MSSQL table name is not set.");
+        }
+        $table = $this->quoteIdentifier($table);
+        $pdo = $this->getConnection();
+        $errors = [];
+        $success = 0;
+        foreach ($addresses as $row) {
+            try {
+                $this->upsertOne($pdo, $table, $row);
+                $success++;
+            } catch (\Throwable $e) {
+                $errors[] = $row['email'] . ': ' . $e->getMessage();
+            }
+        }
+        $this->eventLogger->log('info', "MSSQL sync (selected): {$success} address(es) synced", null, null, null);
+        return ['success' => $success, 'updated' => count($addresses), 'errors' => $errors];
     }
 
     /**

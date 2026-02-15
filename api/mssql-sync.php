@@ -31,7 +31,7 @@ try {
             $data = json_decode(file_get_contents('php://input'), true) ?? [];
 
             if ($path === 'set-config') {
-                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
+                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate', 'mssql_exclude_smtp_codes'];
                 $db = \BounceNG\Database::getInstance();
                 foreach ($keys as $key) {
                     $value = isset($data[$key]) ? (string) $data[$key] : '';
@@ -61,6 +61,18 @@ try {
                 echo json_encode(['success' => true, 'message' => 'Connection successful']);
             } elseif ($path === 'sync') {
                 $result = $sync->syncToMssql();
+                echo json_encode([
+                    'success' => true,
+                    'message' => $result['success'] . ' address(es) synced',
+                    'data' => $result,
+                ]);
+            } elseif ($path === 'sync-selected') {
+                $emails = $data['emails'] ?? [];
+                if (!is_array($emails)) {
+                    $emails = [];
+                }
+                $emails = array_values(array_unique(array_filter(array_map('trim', $emails))));
+                $result = $sync->syncSelectedToMssql($emails);
                 echo json_encode([
                     'success' => true,
                     'message' => $result['success'] . ' address(es) synced',

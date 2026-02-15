@@ -38,6 +38,9 @@
                         <button type="button" class="btn btn-sm btn-outline-light" id="viewBadAddressesBtn" onclick="switchView('badAddresses')">
                             <i class="bi bi-exclamation-triangle"></i> <span class="d-none d-md-inline">Bad Addresses</span>
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="viewBounceLogBtn" onclick="switchView('bounceLog')">
+                            <i class="bi bi-journal-text"></i> <span class="d-none d-md-inline">Bounce Log</span>
+                        </button>
                     </div>
                     <div class="d-flex align-items-center flex-wrap gap-2 mb-2 mb-lg-0">
                         <button class="btn btn-sm btn-outline-light" id="runCronBtn" onclick="runCron()" title="Run Cron Script">
@@ -155,6 +158,11 @@
                                         <label class="form-check-label" for="mssqlTrustCertificate">Trust server certificate (e.g. self-signed)</label>
                                     </div>
                                     <small class="text-muted">Turn on to skip SSL certificate verification (use for self-signed or internal CAs only)</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Excluded SMTP codes (sync)</label>
+                                    <input type="text" class="form-control" id="mssqlExcludeSmtpCodes" placeholder="554">
+                                    <small class="text-muted">Comma-separated codes to exclude from auto-sync (e.g. 554 for local policy / temporary)</small>
                                 </div>
                                 <div class="mb-3 d-flex gap-2 flex-wrap">
                                     <button type="button" class="btn btn-sm btn-primary" onclick="saveMssqlSettings()">Save MSSQL Settings</button>
@@ -452,6 +460,52 @@
                             Next <i class="bi bi-chevron-right"></i>
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bounce Log View -->
+        <div id="viewBounceLog" class="view-container" style="display: none;">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h5 class="mb-0"><i class="bi bi-journal-text"></i> Bounce Log</h5>
+                    <div class="d-flex gap-2 flex-wrap align-items-center">
+                        <input type="text" class="form-control form-control-sm" id="bounceLogSearch" placeholder="Search email, domain, code, reason..." style="width: 220px;">
+                        <select class="form-select form-select-sm" id="bounceLogSort" style="width: 140px;">
+                            <option value="bounce_date">Date</option>
+                            <option value="original_to">Email</option>
+                            <option value="recipient_domain">Domain</option>
+                            <option value="smtp_code">SMTP Code</option>
+                            <option value="deliverability_status">Status</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="bounceLogOrder" style="width: 100px;">
+                            <option value="DESC">Newest</option>
+                            <option value="ASC">Oldest</option>
+                        </select>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBounceLogFilters()">Apply</button>
+                        <button type="button" class="btn btn-sm btn-success" id="bounceLogSyncSelectedBtn" onclick="syncSelectedBouncesToMssql()" title="Sync selected emails to BadAddresses (MSSQL)">
+                            <i class="bi bi-cloud-upload"></i> Sync selected to BadAddresses
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body overflow-auto">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover" id="bounceLogTable">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="bounceLogSelectAll" title="Select all on page"></th>
+                                    <th data-sort="bounce_date">Date <i class="bi bi-arrow-down-up"></i></th>
+                                    <th data-sort="original_to">Email <i class="bi bi-arrow-down-up"></i></th>
+                                    <th data-sort="recipient_domain">Domain <i class="bi bi-arrow-down-up"></i></th>
+                                    <th data-sort="smtp_code">SMTP <i class="bi bi-arrow-down-up"></i></th>
+                                    <th>Reason</th>
+                                    <th data-sort="deliverability_status">Status <i class="bi bi-arrow-down-up"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="bounceLogBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="bounceLogPagination" class="mt-2 small text-muted"></div>
                 </div>
             </div>
         </div>
