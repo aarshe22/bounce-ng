@@ -26,7 +26,7 @@ class MssqlSync {
         if ($this->config !== null) {
             return $this->config;
         }
-        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password'];
+        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
         $config = [];
         foreach ($keys as $key) {
             $stmt = $this->db->prepare("SELECT value FROM settings WHERE key = ?");
@@ -61,14 +61,19 @@ class MssqlSync {
 
     /**
      * Build PDO DSN for MSSQL. Prefer sqlsrv (Windows), fallback to dblib (FreeTDS).
+     * When $trustCertificate is true, adds TrustServerCertificate=yes for sqlsrv (e.g. self-signed certs).
      */
-    private function buildDsn($server, $port, $database) {
+    private function buildDsn($server, $port, $database, $trustCertificate = false) {
         $port = (int) $port ?: 1433;
         $server = trim($server);
         $database = trim($database);
         $drivers = PDO::getAvailableDrivers();
         if (in_array('sqlsrv', $drivers, true)) {
-            return "sqlsrv:Server=" . $server . "," . $port . ";Database=" . $database;
+            $dsn = "sqlsrv:Server=" . $server . "," . $port . ";Database=" . $database;
+            if ($trustCertificate) {
+                $dsn .= ";TrustServerCertificate=yes";
+            }
+            return $dsn;
         }
         if (in_array('dblib', $drivers, true)) {
             return "dblib:host=" . $server . ";port=" . $port . ";dbname=" . $database;
@@ -94,7 +99,8 @@ class MssqlSync {
             throw new \Exception("MSSQL sync is not fully configured. Set server, database, table, and username in Control Panel.");
         }
 
-        $dsn = $this->buildDsn($server, $port, $database);
+        $trustCertificate = isset($c['mssql_trust_certificate']) && $c['mssql_trust_certificate'] === '1';
+        $dsn = $this->buildDsn($server, $port, $database, $trustCertificate);
         $pdo = new PDO($dsn, $username, $password, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         ]);

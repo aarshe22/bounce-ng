@@ -31,12 +31,15 @@ try {
             $data = json_decode(file_get_contents('php://input'), true) ?? [];
 
             if ($path === 'set-config') {
-                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password'];
+                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
                 $db = \BounceNG\Database::getInstance();
                 foreach ($keys as $key) {
                     $value = isset($data[$key]) ? (string) $data[$key] : '';
                     if ($key === 'mssql_port' && $value === '') {
                         $value = '1433';
+                    }
+                    if ($key === 'mssql_trust_certificate') {
+                        $value = ($value === '1' || $value === 'true') ? '1' : '0';
                     }
                     // Do not overwrite password with placeholder or empty
                     if ($key === 'mssql_password' && ($value === '' || $value === '********')) {

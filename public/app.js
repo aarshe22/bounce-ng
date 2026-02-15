@@ -486,6 +486,8 @@ async function loadSettings() {
                     if (mssqlUsername) mssqlUsername.value = m.mssql_username || '';
                     const mssqlPassword = document.getElementById('mssqlPassword');
                     if (mssqlPassword) mssqlPassword.value = m.mssql_password || ''; // masked as ******** when stored
+                    const mssqlTrustCert = document.getElementById('mssqlTrustCertificate');
+                    if (mssqlTrustCert) mssqlTrustCert.checked = m.mssql_trust_certificate === '1';
                 }
             } catch (e) {
                 console.warn('Could not load MSSQL config:', e);
@@ -503,6 +505,7 @@ async function saveMssqlSettings() {
     const table = document.getElementById('mssqlTable')?.value?.trim() || 'BadAddresses';
     const username = document.getElementById('mssqlUsername')?.value?.trim() || '';
     const password = document.getElementById('mssqlPassword')?.value ?? '';
+    const trustCert = document.getElementById('mssqlTrustCertificate')?.checked ?? false;
     try {
         const response = await fetch('/api/mssql-sync.php?action=set-config', {
             method: 'POST',
@@ -513,7 +516,8 @@ async function saveMssqlSettings() {
                 mssql_database: database,
                 mssql_table: table,
                 mssql_username: username,
-                mssql_password: password
+                mssql_password: password,
+                mssql_trust_certificate: trustCert ? '1' : '0'
             })
         });
         const data = await response.json();
