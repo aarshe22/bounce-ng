@@ -40,6 +40,7 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
 - **Interactive Charts**: Button-based zoom controls for timeline visualizations
 - **Bad Addresses Tracking**: View all bounced email addresses with bounce counts, dates, and SMTP codes
 - **CSV Export**: Export bad addresses data to CSV for external analysis
+- **Remote MSSQL Sync**: Sync confirmed hard-bounce bad addresses to a remote MSSQL table (upsert by email, no duplicates)
 - **Comprehensive Help System**: Built-in help documentation accessible from the header
 
 ## Features
@@ -128,6 +129,7 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Displays associated SMTP codes and recipient domains
   - CSV export with timestamped filename (`bounces-YYYY-MM-DDTHH-MM-SS.csv`)
   - Color-coded bounce counts for quick identification
+  - **Remote MSSQL Sync**: Push confirmed hard bounces to a remote MSSQL table (email, last_updated, reason); upsert by email, no duplicates
 
 ### Advanced Features
 
@@ -148,6 +150,14 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - Per-mailbox relay provider assignment
   - Connection testing
   - TLS/SSL encryption support
+
+- **Remote MSSQL Sync**
+  - Sync confirmed hard-bounce bad addresses to a remote MSSQL table
+  - Configurable server, port, database, table name, and SQL credentials
+  - Trust server certificate toggle for self-signed or internal CA certificates
+  - Test connection and manual "Sync Now" from Control Panel
+  - Upsert by email (no duplicates; existing rows updated with last_updated and reason)
+  - Requires PHP PDO driver: `pdo_sqlsrv` (Windows) or `pdo_dblib` (Linux/FreeTDS)
 
 - **Theme Support**
   - Light and dark themes
@@ -174,6 +184,9 @@ Bounce Monitor is designed to help organizations track and manage email bounce m
   - `ext-mbstring` - For multi-byte string handling
   - `ext-curl` - For OAuth and DNS lookups (optional but recommended)
   - `ext-openssl` - For SSL/TLS connections
+  - **MSSQL sync (optional)**:
+    - Windows: `pdo_sqlsrv` - Microsoft SQL Server PDO driver
+    - Linux: `pdo_dblib` with FreeTDS - For remote MSSQL bad-address sync
 
 ### System Requirements
 
@@ -347,6 +360,21 @@ Customize the bounce notification email template with placeholders:
 - **Queue Mode**: When disabled, notifications are queued for manual sending
 - **BCC Monitoring**: When enabled, all outbound notifications (in production mode) are BCC'd to specified email addresses. Supports multiple comma-separated addresses. Useful for monitoring notification delivery without affecting original recipients.
 
+### Remote MSSQL Sync (Bad Addresses)
+
+Sync confirmed **hard-bounce** bad addresses (permanent failures) to a remote MSSQL table. Addresses are keyed by email; existing rows are updated (no duplicates).
+
+1. **Create the table** on your MSSQL server using the provided schema: run `schema/mssql-bad-addresses.sql` in your database. The table must have columns: `email` (primary key), `last_updated`, `reason`. You can change the table name in the script and use the same name in the Control Panel.
+2. In **Control Panel** → **Remote MSSQL Sync**, configure:
+   - **MSSQL Server**: Server IP or hostname
+   - **Port**: Usually `1433`
+   - **Database Name**: Target database
+   - **Table Name**: e.g. `BadAddresses` (must match the table created from the schema)
+   - **Username** / **Password**: SQL authentication credentials
+   - **Trust server certificate**: Enable for self-signed or internal CA certificates (e.g. to avoid "certificate verify failed" errors)
+3. Click **Save MSSQL Settings**, then **Test Connection** to verify.
+4. Use **Sync Now** to push current hard-bounce addresses to MSSQL. Data is read from local bounce records (permanent failures only) and upserted into the remote table.
+
 ## Usage Guide
 
 ### Adding a Mailbox
@@ -473,6 +501,7 @@ The dashboard provides:
   - Downloads file named `bounces-YYYY-MM-DDTHH-MM-SS.csv`
   - Includes all columns with proper CSV formatting
   - UTF-8 BOM for Excel compatibility
+- **Sync to remote MSSQL**: In Control Panel → Remote MSSQL Sync, configure server/credentials and use **Sync Now** to push confirmed hard-bounce addresses (email, last_updated, reason) to a remote table; no duplicates, existing rows are updated.
 
 ### Configuration Backup & Restore
 
@@ -507,6 +536,7 @@ bounce-ng/
 │   ├── dashboard.php   # Dashboard data
 │   ├── events.php      # Event log API
 │   ├── mailboxes.php   # Mailbox management
+│   ├── mssql-sync.php   # Remote MSSQL bad-address sync (config, test, sync)
 │   ├── notifications.php # Notification management
 │   ├── relay-providers.php # Relay provider management
 │   ├── settings.php    # Settings management
@@ -527,8 +557,11 @@ bounce-ng/
 │   ├── EmailParser.php # Email parsing
 │   ├── EventLogger.php # Event logging
 │   ├── MailboxMonitor.php # Mailbox monitoring
+│   ├── MssqlSync.php    # MSSQL bad-address sync (connection, upsert)
 │   ├── NotificationSender.php # Notification sending
 │   └── TrustScoreCalculator.php # Trust score calculation
+├── schema/              # Database schema scripts
+│   └── mssql-bad-addresses.sql # MSSQL table for bad-address sync
 ├── notify-cron.php      # Cron script
 ├── index.php           # Main entry point
 ├── login.php          # Login page

@@ -163,6 +163,17 @@ Configure your web server (Apache/Nginx) to point to the repository root.
 5. Click **"Save"**
 6. Assign this relay provider to your mailbox (edit mailbox → select relay provider)
 
+## Step 8b: (Optional) Sync Bad Addresses to Remote MSSQL
+
+If you want to push confirmed hard-bounce bad addresses to a central MSSQL database:
+
+1. **Create the table** on your MSSQL server: run the script `schema/mssql-bad-addresses.sql` in your database (creates table with columns: `email`, `last_updated`, `reason`). You can change the table name in the script.
+2. In **Control Panel**, scroll to **"Remote MSSQL Sync"**.
+3. Enter **MSSQL Server** (IP or hostname), **Port** (default 1433), **Database Name**, **Table Name** (e.g. `BadAddresses`), **Username**, and **Password**.
+4. If your server uses a **self-signed certificate**, turn on **"Trust server certificate (e.g. self-signed)"** to avoid SSL certificate errors.
+5. Click **Save MSSQL Settings**, then **Test Connection** to verify.
+6. Click **Sync Now** to push current hard-bounce addresses to the remote table. Existing rows are updated by email (no duplicates).
+
 ## Step 9: Process Your First Bounces
 
 ### Manual Processing
@@ -221,6 +232,7 @@ Or use the **"RUN CRON"** button in the header for manual execution.
 - **Configure Cron**: Set up automated processing
 - **User Management**: Add additional users (admin-only)
 - **Backup Configuration**: Export settings for backup (admin-only)
+- **Remote MSSQL Sync**: Configure and use **Sync Now** in Control Panel to push hard-bounce bad addresses to a remote MSSQL table (optional; requires PDO SQL Server driver)
 
 ## Troubleshooting
 
@@ -244,6 +256,11 @@ Or use the **"RUN CRON"** button in the header for manual execution.
 - Check that bounce messages contain SMTP error codes
 - Review event log for parsing errors
 - Some bounce formats may not be fully supported
+
+### MSSQL Sync: Certificate or Connection Errors
+
+- **"certificate verify failed" (e.g. self-signed)**: In Control Panel → Remote MSSQL Sync, turn on **Trust server certificate (e.g. self-signed)** and save, then try Test Connection or Sync Now again.
+- **Driver not found**: Install the PHP PDO driver for SQL Server (`pdo_sqlsrv` on Windows or `pdo_dblib` with FreeTDS on Linux).
 
 ## Getting Help
 
