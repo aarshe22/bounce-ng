@@ -493,8 +493,6 @@ async function loadSettings() {
                     if (mssqlPassword) mssqlPassword.value = m.mssql_password || ''; // masked as ******** when stored
                     const mssqlTrustCert = document.getElementById('mssqlTrustCertificate');
                     if (mssqlTrustCert) mssqlTrustCert.checked = m.mssql_trust_certificate === '1';
-                    const mssqlExclude = document.getElementById('mssqlExcludeSmtpCodes');
-                    if (mssqlExclude) mssqlExclude.value = m.mssql_exclude_smtp_codes || '';
                 }
             } catch (e) {
                 console.warn('Could not load MSSQL config:', e);
@@ -524,8 +522,7 @@ async function saveMssqlSettings() {
                 mssql_table: table,
                 mssql_username: username,
                 mssql_password: password,
-                mssql_trust_certificate: trustCert ? '1' : '0',
-                mssql_exclude_smtp_codes: document.getElementById('mssqlExcludeSmtpCodes')?.value?.trim() || ''
+                mssql_trust_certificate: trustCert ? '1' : '0'
             })
         });
         const data = await response.json();
@@ -3026,7 +3023,7 @@ async function loadBounceLog() {
     const tbody = document.getElementById('bounceLogBody');
     const paginationEl = document.getElementById('bounceLogPagination');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</td></tr>';
     const search = document.getElementById('bounceLogSearch')?.value?.trim() || '';
     const sort = document.getElementById('bounceLogSort')?.value || 'bounce_date';
     const order = document.getElementById('bounceLogOrder')?.value || 'DESC';
@@ -3044,27 +3041,24 @@ async function loadBounceLog() {
         }
     } catch (error) {
         console.error('Bounce log load error:', error);
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">' + error.message + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">' + error.message + '</td></tr>';
         if (paginationEl) paginationEl.textContent = '';
     }
 }
 
 function renderBounceLogTable(rows, total) {
     const tbody = document.getElementById('bounceLogBody');
-    const selectAll = document.getElementById('bounceLogSelectAll');
     if (!tbody) return;
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No bounces found</td></tr>';
-        if (selectAll) selectAll.checked = false;
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No bounces found</td></tr>';
         return;
     }
-    tbody.innerHTML = rows.map((row, i) => {
+    tbody.innerHTML = rows.map((row) => {
         const date = row.bounce_date ? new Date(row.bounce_date).toLocaleString() : '';
         const status = row.deliverability_status || '';
         const statusClass = status === 'permanent_failure' ? 'danger' : status === 'temporary_failure' ? 'warning' : 'secondary';
         const reason = (row.smtp_reason || '').substring(0, 120) + ((row.smtp_reason || '').length > 120 ? '…' : '');
         return `<tr>
-            <td><input type="checkbox" class="bounce-log-row-check" data-index="${i}" /></td>
             <td>${date}</td>
             <td>${escapeHtml(row.original_to || '')}</td>
             <td>${escapeHtml(row.recipient_domain || '')}</td>
@@ -3073,7 +3067,6 @@ function renderBounceLogTable(rows, total) {
             <td><span class="badge bg-${statusClass}">${escapeHtml(status)}</span></td>
         </tr>`;
     }).join('');
-    if (selectAll) selectAll.checked = false;
 }
 
 function escapeHtml(s) {
@@ -3107,13 +3100,6 @@ function initBounceLogHandlers() {
             searchTimeout = setTimeout(loadBounceLog, 400);
         });
     }
-    const bounceLogSelectAll = document.getElementById('bounceLogSelectAll');
-    if (bounceLogSelectAll && !bounceLogSelectAll.dataset.bound) {
-        bounceLogSelectAll.dataset.bound = '1';
-        bounceLogSelectAll.addEventListener('change', function() {
-            document.querySelectorAll('.bounce-log-row-check').forEach(cb => { cb.checked = this.checked; });
-        });
-    }
     document.querySelectorAll('#bounceLogTable thead th[data-sort]').forEach(th => {
         if (th.dataset.bound) return;
         th.dataset.bound = '1';
@@ -3129,40 +3115,8 @@ function initBounceLogHandlers() {
     });
 }
 
-async function syncSelectedBouncesToMssql() {
-    const checked = document.querySelectorAll('.bounce-log-row-check:checked');
-    const emails = Array.from(checked).map(cb => {
-        const idx = parseInt(cb.getAttribute('data-index'), 10);
-        const row = bounceLogData[idx];
-        return row && row.original_to ? row.original_to.trim() : null;
-    }).filter(Boolean);
-    if (emails.length === 0) {
-        alert('Select one or more rows (email addresses) to sync to BadAddresses.');
-        return;
-    }
-    const btn = document.getElementById('bounceLogSyncSelectedBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Syncing…'; }
-    try {
-        const response = await fetch('/api/mssql-sync.php?action=sync-selected', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ emails })
-        });
-        const data = await response.json();
-        if (data.success) {
-            const d = data.data || {};
-            addEventLogMessage('success', 'MSSQL sync (selected): ' + (d.success || 0) + ' address(es) synced');
-            alert((d.success || 0) + ' address(es) synced to BadAddresses.' + (d.errors && d.errors.length ? ' ' + d.errors.length + ' error(s).' : ''));
-        } else {
-            throw new Error(data.error || 'Sync failed');
-        }
-    } catch (error) {
-        addEventLogMessage('error', 'MSSQL sync (selected) failed: ' + error.message);
-        alert('Sync failed: ' + error.message);
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Sync selected to BadAddresses'; }
-    }
-}
+// Bad Addresses (sorted by bounce count descending; SYNC/UNSYNC per address to BadAddresses table)
+let badAddressesSyncedSet = new Set();
 
 // Bad Addresses
 async function loadBadAddresses() {
@@ -3172,17 +3126,18 @@ async function loadBadAddresses() {
     try {
         container.innerHTML = '<p class="text-muted text-center"><span class="spinner-border spinner-border-sm me-2"></span>Loading bad addresses...</p>';
         
-        const response = await fetch('/api/bad-addresses.php');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        const [addrRes, syncedRes] = await Promise.all([
+            fetch('/api/bad-addresses.php'),
+            fetch('/api/mssql-sync.php?action=synced-emails')
+        ]);
+        if (!addrRes.ok) throw new Error(`HTTP error! status: ${addrRes.status}`);
+        const addrData = await addrRes.json();
+        if (!addrData.success) throw new Error(addrData.error || 'Failed to load bad addresses');
         
-        const data = await response.json();
-        if (data.success) {
-            displayBadAddresses(data.data || [], data.total || 0);
-        } else {
-            throw new Error(data.error || 'Failed to load bad addresses');
-        }
+        const syncedList = syncedRes.ok ? (await syncedRes.json()).data : [];
+        badAddressesSyncedSet = new Set(Array.isArray(syncedList) ? syncedList.map(e => (e || '').trim().toLowerCase()) : []);
+        
+        displayBadAddresses(addrData.data || [], addrData.total || 0);
     } catch (error) {
         console.error('Error loading bad addresses:', error);
         container.innerHTML = `<div class="alert alert-danger">Error loading bad addresses: ${error.message}</div>`;
@@ -3203,18 +3158,19 @@ function displayBadAddresses(addresses, total) {
     
     let html = `
         <div class="mb-3">
-            <p class="text-muted mb-0"><strong>Total:</strong> ${total} unique email address${total !== 1 ? 'es' : ''} with bounces</p>
+            <p class="text-muted mb-0"><strong>Total:</strong> ${total} unique email address${total !== 1 ? 'es' : ''} with bounces. Sync/Unsync with BadAddresses (MSSQL) table.</p>
         </div>
         <div class="table-responsive">
             <table class="table table-hover table-striped">
                 <thead>
                     <tr>
                         <th style="width: 5%;">#</th>
-                        <th style="width: 40%;">Email Address</th>
-                        <th style="width: 10%;" class="text-center">Bounce Count</th>
-                        <th style="width: 15%;">First Bounce</th>
-                        <th style="width: 15%;">Last Bounce</th>
-                        <th style="width: 15%;">SMTP Codes</th>
+                        <th style="width: 32%;">Email Address</th>
+                        <th style="width: 8%;" class="text-center">Bounce Count</th>
+                        <th style="width: 12%;">First Bounce</th>
+                        <th style="width: 12%;">Last Bounce</th>
+                        <th style="width: 18%;">SMTP Codes</th>
+                        <th style="width: 13%;">BadAddresses</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3226,6 +3182,12 @@ function displayBadAddresses(addresses, total) {
         const smtpCodes = Array.isArray(address.smtp_codes) && address.smtp_codes.length > 0
             ? address.smtp_codes.filter(code => code && code.trim() !== '').join(', ')
             : 'N/A';
+        const emailKey = (address.original_to || '').trim().toLowerCase();
+        const isSynced = badAddressesSyncedSet.has(emailKey);
+        const rawEmail = (address.original_to || '').trim();
+        const btn = isSynced
+            ? `<button type="button" class="btn btn-sm btn-danger bad-addr-sync-btn" data-email="${rawEmail.replace(/"/g, '&quot;')}" data-action="unsync" title="Remove from BadAddresses table">UNSYNC</button>`
+            : `<button type="button" class="btn btn-sm btn-success bad-addr-sync-btn" data-email="${rawEmail.replace(/"/g, '&quot;')}" data-action="sync" title="Add to BadAddresses table">SYNC</button>`;
         
         // Color code based on bounce count
         let bounceCountClass = '';
@@ -3245,6 +3207,7 @@ function displayBadAddresses(addresses, total) {
                 <td>${firstBounce}</td>
                 <td>${lastBounce}</td>
                 <td><small>${escapeHtml(smtpCodes)}</small></td>
+                <td>${btn}</td>
             </tr>
         `;
     });
@@ -3256,6 +3219,69 @@ function displayBadAddresses(addresses, total) {
     `;
     
     container.innerHTML = html;
+    if (!container.dataset.badAddrBound) {
+        container.dataset.badAddrBound = '1';
+        container.addEventListener('click', function(e) {
+            const btn = e.target.closest('.bad-addr-sync-btn');
+            if (!btn) return;
+            e.preventDefault();
+            const email = btn.getAttribute('data-email');
+            const action = btn.getAttribute('data-action');
+            if (email) toggleBadAddressSync(email, action, btn);
+        });
+    }
+}
+
+async function toggleBadAddressSync(email, action, btnEl) {
+    if (!email || !action) return;
+    const wasSync = action === 'sync';
+    if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = wasSync ? 'Syncing…' : 'Unsyncing…';
+    }
+    try {
+        if (wasSync) {
+            const response = await fetch('/api/mssql-sync.php?action=sync-selected', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails: [email] })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Sync failed');
+            badAddressesSyncedSet.add(email.toLowerCase());
+            if (btnEl) {
+                btnEl.classList.remove('btn-success');
+                btnEl.classList.add('btn-danger');
+                btnEl.textContent = 'UNSYNC';
+                btnEl.setAttribute('data-action', 'unsync');
+                btnEl.title = 'Remove from BadAddresses table';
+            }
+            addEventLogMessage('success', 'Added to BadAddresses: ' + email);
+        } else {
+            const response = await fetch('/api/mssql-sync.php?action=remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Remove failed');
+            badAddressesSyncedSet.delete(email.toLowerCase());
+            if (btnEl) {
+                btnEl.classList.remove('btn-danger');
+                btnEl.classList.add('btn-success');
+                btnEl.textContent = 'SYNC';
+                btnEl.setAttribute('data-action', 'sync');
+                btnEl.title = 'Add to BadAddresses table';
+            }
+            addEventLogMessage('success', 'Removed from BadAddresses: ' + email);
+        }
+    } catch (error) {
+        addEventLogMessage('error', (wasSync ? 'Sync' : 'Unsync') + ' failed: ' + error.message);
+        alert((wasSync ? 'Sync' : 'Unsync') + ' failed: ' + error.message);
+        loadBadAddresses();
+    } finally {
+        if (btnEl) btnEl.disabled = false;
+    }
 }
 
 function exportBadAddressesCSV() {

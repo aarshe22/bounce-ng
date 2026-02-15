@@ -159,11 +159,6 @@
                                     </div>
                                     <small class="text-muted">Turn on to skip SSL certificate verification (use for self-signed or internal CAs only)</small>
                                 </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Excluded SMTP codes (sync)</label>
-                                    <input type="text" class="form-control" id="mssqlExcludeSmtpCodes" placeholder="554">
-                                    <small class="text-muted">Comma-separated codes to exclude from auto-sync (e.g. 554 for local policy / temporary)</small>
-                                </div>
                                 <div class="mb-3 d-flex gap-2 flex-wrap">
                                     <button type="button" class="btn btn-sm btn-primary" onclick="saveMssqlSettings()">Save MSSQL Settings</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" id="mssqlTestBtn" onclick="testMssqlConnection()">Test Connection</button>
@@ -483,9 +478,6 @@
                             <option value="ASC">Oldest</option>
                         </select>
                         <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyBounceLogFilters()">Apply</button>
-                        <button type="button" class="btn btn-sm btn-success" id="bounceLogSyncSelectedBtn" onclick="syncSelectedBouncesToMssql()" title="Sync selected emails to BadAddresses (MSSQL)">
-                            <i class="bi bi-cloud-upload"></i> Sync selected to BadAddresses
-                        </button>
                     </div>
                 </div>
                 <div class="card-body overflow-auto">
@@ -493,7 +485,6 @@
                         <table class="table table-sm table-hover" id="bounceLogTable">
                             <thead>
                                 <tr>
-                                    <th><input type="checkbox" id="bounceLogSelectAll" title="Select all on page"></th>
                                     <th data-sort="bounce_date">Date <i class="bi bi-arrow-down-up"></i></th>
                                     <th data-sort="original_to">Email <i class="bi bi-arrow-down-up"></i></th>
                                     <th data-sort="recipient_domain">Domain <i class="bi bi-arrow-down-up"></i></th>
@@ -510,7 +501,7 @@
             </div>
         </div>
 
-        <!-- Bad Addresses View -->
+        <!-- Bad Addresses View (sorted by bounce count descending; SYNC/UNSYNC per address) -->
         <div id="viewBadAddresses" class="view-container" style="display: none;">
             <div class="card h-100">
                 <div class="card-header d-flex justify-content-between align-items-center">

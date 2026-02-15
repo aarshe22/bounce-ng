@@ -26,7 +26,7 @@ class MssqlSync {
         if ($this->config !== null) {
             return $this->config;
         }
-        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate', 'mssql_exclude_smtp_codes'];
+        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
         $config = [];
         foreach ($keys as $key) {
             $stmt = $this->db->prepare("SELECT value FROM settings WHERE key = ?");
@@ -135,16 +135,6 @@ class MssqlSync {
         ");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $excludeCodes = [];
-        $excludeStr = trim($this->getConfig()['mssql_exclude_smtp_codes'] ?? '');
-        if ($excludeStr !== '') {
-            foreach (array_map('trim', explode(',', $excludeStr)) as $code) {
-                if ($code !== '') {
-                    $excludeCodes[$code] = true;
-                }
-            }
-        }
-
         $byEmail = [];
         foreach ($rows as $r) {
             $email = trim($r['original_to']);
@@ -152,10 +142,6 @@ class MssqlSync {
                 continue;
             }
             if (isset($byEmail[$email])) {
-                continue;
-            }
-            $smtpCode = trim($r['smtp_code'] ?? '');
-            if (isset($excludeCodes[$smtpCode])) {
                 continue;
             }
             $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
@@ -286,6 +272,57 @@ class MssqlSync {
         }
 
         return ['success' => $success, 'updated' => count($addresses), 'errors' => $errors];
+    }
+
+    /**
+     * Return list of email addresses currently in the remote BadAddresses table.
+     *
+     * @return string[]
+     */
+    public function getSyncedEmails() {
+        $config = $this->getConfig();
+        $table = trim($config['mssql_table'] ?? '');
+        if ($table === '') {
+            return [];
+        }
+        $table = $this->quoteIdentifier($table);
+        $pdo = $this->getConnection();
+        $stmt = $pdo->query("SELECT email FROM {$table}");
+        $emails = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $email = trim($row['email'] ?? '');
+            if ($email !== '') {
+                $emails[] = $email;
+            }
+        }
+        return $emails;
+    }
+
+    /**
+     * Remove one email from the remote BadAddresses table.
+     *
+     * @param string $email
+     * @return bool True if a row was deleted
+     */
+    public function removeFromMssql($email) {
+        $email = trim($email);
+        if ($email === '') {
+            throw new \Exception("Email is required");
+        }
+        $config = $this->getConfig();
+        $table = trim($config['mssql_table'] ?? '');
+        if ($table === '') {
+            throw new \Exception("MSSQL table name is not set.");
+        }
+        $table = $this->quoteIdentifier($table);
+        $pdo = $this->getConnection();
+        $stmt = $pdo->prepare("DELETE FROM {$table} WHERE email = ?");
+        $stmt->execute([$email]);
+        $deleted = $stmt->rowCount() > 0;
+        if ($deleted) {
+            $this->eventLogger->log('info', "Removed {$email} from BadAddresses table", null, null, null);
+        }
+        return $deleted;
     }
 
     /**

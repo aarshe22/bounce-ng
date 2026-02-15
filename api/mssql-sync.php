@@ -20,6 +20,9 @@ try {
         case 'GET':
             if ($path === 'config') {
                 echo json_encode(['success' => true, 'data' => $sync->getConfigMasked()]);
+            } elseif ($path === 'synced-emails') {
+                $emails = $sync->isConfigured() ? $sync->getSyncedEmails() : [];
+                echo json_encode(['success' => true, 'data' => $emails]);
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);
@@ -31,7 +34,7 @@ try {
             $data = json_decode(file_get_contents('php://input'), true) ?? [];
 
             if ($path === 'set-config') {
-                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate', 'mssql_exclude_smtp_codes'];
+                $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
                 $db = \BounceNG\Database::getInstance();
                 foreach ($keys as $key) {
                     $value = isset($data[$key]) ? (string) $data[$key] : '';
@@ -78,6 +81,13 @@ try {
                     'message' => $result['success'] . ' address(es) synced',
                     'data' => $result,
                 ]);
+            } elseif ($path === 'remove') {
+                $email = trim($data['email'] ?? '');
+                if ($email === '') {
+                    throw new Exception("Email is required");
+                }
+                $sync->removeFromMssql($email);
+                echo json_encode(['success' => true, 'message' => 'Address removed from BadAddresses table']);
             } else {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid action']);
