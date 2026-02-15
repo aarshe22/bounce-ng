@@ -121,6 +121,41 @@
                                     <small class="text-muted">When disabled, notifications are queued for manual sending</small>
                                 </div>
 
+                                <hr>
+                                <h6>Remote MSSQL Sync</h6>
+                                <p class="text-muted small">Sync confirmed hard-bounce bad addresses to a remote MSSQL table (no duplicates; existing rows are updated).</p>
+                                <div class="mb-3">
+                                    <label class="form-label">MSSQL Server</label>
+                                    <input type="text" class="form-control" id="mssqlServer" placeholder="192.168.1.10 or hostname">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Port</label>
+                                    <input type="number" class="form-control" id="mssqlPort" placeholder="1433" value="1433">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Database Name</label>
+                                    <input type="text" class="form-control" id="mssqlDatabase" placeholder="MyDatabase">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Table Name</label>
+                                    <input type="text" class="form-control" id="mssqlTable" placeholder="BadAddresses">
+                                    <small class="text-muted">Must have columns: email (PK), last_updated, reason. Use <code>schema/mssql-bad-addresses.sql</code> to create.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="mssqlUsername" placeholder="sql_user">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="mssqlPassword" placeholder="••••••••" autocomplete="off">
+                                </div>
+                                <div class="mb-3 d-flex gap-2 flex-wrap">
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="saveMssqlSettings()">Save MSSQL Settings</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="mssqlTestBtn" onclick="testMssqlConnection()">Test Connection</button>
+                                    <button type="button" class="btn btn-sm btn-success" id="mssqlSyncBtn" onclick="syncMssqlNow()">Sync Now</button>
+                                </div>
+
+                                <hr>
                                 <div class="mb-3">
                                     <label class="form-label">Event Log Timezone</label>
                                     <select class="form-select" id="timezoneSelect">

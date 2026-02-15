@@ -467,9 +467,107 @@ async function loadSettings() {
             const timezone = settings.event_log_timezone || 'UTC';
             document.getElementById('timezoneSelect').value = timezone;
             window.eventLogTimezone = timezone; // Store globally for timestamp formatting
+
+            // Load MSSQL sync settings from dedicated API (password masked)
+            try {
+                const mssqlRes = await fetch('/api/mssql-sync.php?action=config');
+                const mssqlData = await mssqlRes.json();
+                if (mssqlData.success && mssqlData.data) {
+                    const m = mssqlData.data;
+                    const mssqlPort = document.getElementById('mssqlPort');
+                    if (mssqlPort) mssqlPort.value = m.mssql_port || '1433';
+                    const mssqlServer = document.getElementById('mssqlServer');
+                    if (mssqlServer) mssqlServer.value = m.mssql_server || '';
+                    const mssqlDatabase = document.getElementById('mssqlDatabase');
+                    if (mssqlDatabase) mssqlDatabase.value = m.mssql_database || '';
+                    const mssqlTable = document.getElementById('mssqlTable');
+                    if (mssqlTable) mssqlTable.value = m.mssql_table || 'BadAddresses';
+                    const mssqlUsername = document.getElementById('mssqlUsername');
+                    if (mssqlUsername) mssqlUsername.value = m.mssql_username || '';
+                    const mssqlPassword = document.getElementById('mssqlPassword');
+                    if (mssqlPassword) mssqlPassword.value = m.mssql_password || ''; // masked as ******** when stored
+                }
+            } catch (e) {
+                console.warn('Could not load MSSQL config:', e);
+            }
         }
     } catch (error) {
         console.error('Error loading settings:', error);
+    }
+}
+
+async function saveMssqlSettings() {
+    const server = document.getElementById('mssqlServer')?.value?.trim() || '';
+    const port = document.getElementById('mssqlPort')?.value?.trim() || '1433';
+    const database = document.getElementById('mssqlDatabase')?.value?.trim() || '';
+    const table = document.getElementById('mssqlTable')?.value?.trim() || 'BadAddresses';
+    const username = document.getElementById('mssqlUsername')?.value?.trim() || '';
+    const password = document.getElementById('mssqlPassword')?.value ?? '';
+    try {
+        const response = await fetch('/api/mssql-sync.php?action=set-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mssql_server: server,
+                mssql_port: port,
+                mssql_database: database,
+                mssql_table: table,
+                mssql_username: username,
+                mssql_password: password
+            })
+        });
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', 'MSSQL sync settings saved');
+            alert('MSSQL settings saved.');
+        } else {
+            throw new Error(data.error || 'Failed to save');
+        }
+    } catch (error) {
+        console.error('Error saving MSSQL settings:', error);
+        addEventLogMessage('error', 'Failed to save MSSQL settings: ' + error.message);
+        alert('Error: ' + error.message);
+    }
+}
+
+async function testMssqlConnection() {
+    const btn = document.getElementById('mssqlTestBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+    try {
+        const response = await fetch('/api/mssql-sync.php?action=test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await response.json();
+        if (data.success) {
+            addEventLogMessage('success', 'MSSQL connection test passed');
+            alert('Connection successful.');
+        } else {
+            throw new Error(data.error || 'Connection failed');
+        }
+    } catch (error) {
+        addEventLogMessage('error', 'MSSQL connection test failed: ' + error.message);
+        alert('Connection failed: ' + error.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Test Connection'; }
+    }
+}
+
+async function syncMssqlNow() {
+    const btn = document.getElementById('mssqlSyncBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+    try {
+        const response = await fetch('/api/mssql-sync.php?action=sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await response.json();
+        if (data.success) {
+            const d = data.data || {};
+            addEventLogMessage('success', 'MSSQL sync: ' + (d.success ?? 0) + ' address(es) synced');
+            alert((d.success ?? 0) + ' address(es) synced.' + (d.errors?.length ? ' ' + d.errors.length + ' error(s).' : ''));
+        } else {
+            throw new Error(data.error || 'Sync failed');
+        }
+    } catch (error) {
+        addEventLogMessage('error', 'MSSQL sync failed: ' + error.message);
+        alert('Sync failed: ' + error.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
     }
 }
 
