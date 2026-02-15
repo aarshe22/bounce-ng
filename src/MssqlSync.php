@@ -190,10 +190,10 @@ class MssqlSync {
             SELECT b.original_to, b.bounce_date, b.smtp_code, b.smtp_reason, sc.description as smtp_description
             FROM bounces b
             LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
-            WHERE b.original_to IN (
-                SELECT original_to FROM bounces
+            WHERE LOWER(TRIM(b.original_to)) IN (
+                SELECT LOWER(TRIM(original_to)) FROM bounces
                 WHERE original_to IS NOT NULL AND TRIM(original_to) != ''
-                GROUP BY original_to
+                GROUP BY LOWER(TRIM(original_to))
                 HAVING COUNT(*) >= 2
             )
             ORDER BY b.bounce_date DESC
@@ -206,15 +206,16 @@ class MssqlSync {
             if ($email === '') {
                 continue;
             }
-            if (isset($byEmail[$email])) {
+            $emailLower = strtolower($email);
+            if (isset($byEmail[$emailLower])) {
                 continue;
             }
-            if (isset($manuallyUnsynced[strtolower($email)])) {
+            if (isset($manuallyUnsynced[$emailLower])) {
                 continue;
             }
             $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
-            $byEmail[$email] = [
-                'email' => $email,
+            $byEmail[$emailLower] = [
+                'email' => $emailLower,
                 'last_updated' => $r['bounce_date'],
                 'reason' => $reason,
             ];
@@ -246,12 +247,13 @@ class MssqlSync {
             if ($email === '') {
                 continue;
             }
-            if (isset($byEmail[$email])) {
+            $emailLower = strtolower($email);
+            if (isset($byEmail[$emailLower])) {
                 continue;
             }
             $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
-            $byEmail[$email] = [
-                'email' => $email,
+            $byEmail[$emailLower] = [
+                'email' => $emailLower,
                 'last_updated' => $r['bounce_date'],
                 'reason' => $reason,
             ];
@@ -271,7 +273,9 @@ class MssqlSync {
      * @return array<array{email: string, last_updated: string, reason: string}>
      */
     public function getAddressesForSync(array $emails) {
-        $emails = array_filter(array_map('trim', $emails));
+        $emails = array_unique(array_filter(array_map(function ($e) {
+            return strtolower(trim($e));
+        }, $emails)));
         if (empty($emails)) {
             return [];
         }
@@ -280,7 +284,7 @@ class MssqlSync {
             SELECT b.original_to, b.bounce_date, b.smtp_code, b.smtp_reason, sc.description as smtp_description
             FROM bounces b
             LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
-            WHERE b.original_to IN ({$placeholders})
+            WHERE LOWER(TRIM(b.original_to)) IN ({$placeholders})
             ORDER BY b.bounce_date DESC
         ");
         $stmt->execute(array_values($emails));
@@ -289,12 +293,16 @@ class MssqlSync {
         $byEmail = [];
         foreach ($rows as $r) {
             $email = trim($r['original_to']);
-            if ($email === '' || isset($byEmail[$email])) {
+            if ($email === '') {
+                continue;
+            }
+            $emailLower = strtolower($email);
+            if (isset($byEmail[$emailLower])) {
                 continue;
             }
             $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
-            $byEmail[$email] = [
-                'email' => $email,
+            $byEmail[$emailLower] = [
+                'email' => $emailLower,
                 'last_updated' => $r['bounce_date'],
                 'reason' => $reason,
             ];
@@ -400,7 +408,7 @@ class MssqlSync {
         $stmt = $pdo->query("SELECT email FROM {$table}");
         $emails = [];
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $email = trim($row['email'] ?? '');
+            $email = strtolower(trim($row['email'] ?? ''));
             if ($email !== '') {
                 $emails[] = $email;
             }
@@ -415,7 +423,7 @@ class MssqlSync {
      * @return bool True if a row was deleted
      */
     public function removeFromMssql($email) {
-        $email = trim($email);
+        $email = strtolower(trim($email));
         if ($email === '') {
             throw new \Exception("Email is required");
         }

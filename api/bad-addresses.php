@@ -13,19 +13,19 @@ $auth->requireAuth();
 try {
     $db = \BounceNG\Database::getInstance();
     
-    // Get all original TO addresses with bounce counts, ordered by count descending
-    // SQLite GROUP_CONCAT doesn't support DISTINCT in older versions, so we'll handle uniqueness in PHP
+    // Get all original TO addresses with bounce counts, ordered by count descending.
+    // Group by LOWER(original_to) so addresses are case-insensitive and fully deduplicated.
     $stmt = $db->query("
         SELECT 
-            original_to,
+            LOWER(TRIM(original_to)) as original_to,
             COUNT(*) as bounce_count,
             MIN(bounce_date) as first_bounce,
             MAX(bounce_date) as last_bounce,
             GROUP_CONCAT(smtp_code) as smtp_codes,
             GROUP_CONCAT(recipient_domain) as domains
         FROM bounces
-        WHERE original_to IS NOT NULL AND original_to != ''
-        GROUP BY original_to
+        WHERE original_to IS NOT NULL AND TRIM(original_to) != ''
+        GROUP BY LOWER(TRIM(original_to))
         ORDER BY bounce_count DESC, last_bounce DESC
     ");
     

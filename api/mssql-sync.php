@@ -74,7 +74,9 @@ try {
                 if (!is_array($emails)) {
                     $emails = [];
                 }
-                $emails = array_values(array_unique(array_filter(array_map('trim', $emails))));
+                $emails = array_values(array_unique(array_filter(array_map(function ($e) {
+                    return strtolower(trim((string) $e));
+                }, $emails))));
                 $result = $sync->syncSelectedToMssql($emails);
                 foreach ($emails as $email) {
                     $sync->removeManuallyUnsynced($email);
@@ -85,7 +87,7 @@ try {
                     'data' => $result,
                 ]);
             } elseif ($path === 'remove') {
-                $email = trim($data['email'] ?? '');
+                $email = strtolower(trim($data['email'] ?? ''));
                 if ($email === '') {
                     throw new Exception("Email is required");
                 }

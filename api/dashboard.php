@@ -97,10 +97,26 @@ try {
             }
         }
         
-        // Remove duplicates
-        $toAddresses = array_values(array_unique($toAddresses));
-        $ccAddresses = array_values(array_unique($ccAddresses));
-        
+        // Remove duplicates (case-insensitive: normalize to lowercase)
+        $toAddresses = array_values(array_unique(array_map(function ($e) {
+            return strtolower(trim($e));
+        }, $toAddresses)));
+        $ccAddresses = array_values(array_unique(array_map(function ($e) {
+            return strtolower(trim($e));
+        }, $ccAddresses)));
+        // Dedupe email pairs by lowercase to+cc and normalize values
+        $seenPairs = [];
+        $emailPairs = array_values(array_filter($emailPairs, function ($p) use (&$seenPairs) {
+            $key = strtolower(trim($p['to'] ?? '')) . '|' . strtolower(trim($p['cc'] ?? ''));
+            if (isset($seenPairs[$key])) {
+                return false;
+            }
+            $seenPairs[$key] = true;
+            return true;
+        }));
+        $emailPairs = array_map(function ($p) {
+            return ['to' => strtolower(trim($p['to'] ?? '')), 'cc' => strtolower(trim($p['cc'] ?? ''))];
+        }, $emailPairs);
         $domain['associated_to_addresses'] = $toAddresses;
         $domain['associated_cc_addresses'] = $ccAddresses;
         $domain['email_pairs'] = $emailPairs; // TO:CC pairs for invalid domains

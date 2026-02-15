@@ -450,14 +450,13 @@ try {
         try {
             $db->beginTransaction();
             
-            // Find all duplicate recipient_email + original_to pairs in pending notifications
-            // Group by both recipient_email and original_to to find true duplicates
+            // Find all duplicate recipient_email + original_to pairs (case-insensitive email) in pending notifications
             $stmt = $db->query("
                 SELECT nq.recipient_email, b.original_to, COUNT(*) as count
                 FROM notifications_queue nq
                 JOIN bounces b ON nq.bounce_id = b.id
                 WHERE nq.status = 'pending'
-                GROUP BY nq.recipient_email, b.original_to
+                GROUP BY nq.recipient_email, LOWER(TRIM(b.original_to))
                 HAVING COUNT(*) > 1
             ");
             $duplicatePairs = $stmt->fetchAll();
@@ -479,13 +478,12 @@ try {
                         continue;
                     }
                     
-                    // Get all notifications for this recipient_email + original_to pair with their created_at dates
-                    // Order by created_at DESC to get newest first
+                    // Get all notifications for this recipient_email + original_to pair (case-insensitive original_to)
                     $stmt = $db->prepare("
                         SELECT nq.id, nq.created_at
                         FROM notifications_queue nq
                         JOIN bounces b ON nq.bounce_id = b.id
-                        WHERE nq.recipient_email = ? AND b.original_to = ? AND nq.status = 'pending'
+                        WHERE nq.recipient_email = ? AND LOWER(TRIM(b.original_to)) = LOWER(?) AND nq.status = 'pending'
                         ORDER BY nq.created_at DESC
                     ");
                     $stmt->execute([$recipientEmail, $originalTo]);

@@ -629,6 +629,12 @@ class MailboxMonitor {
         $data = $parser->getParsedData();
         $originalCc = $parser->getOriginalCc();
         
+        // Normalize original_to to lowercase for case-insensitive deduplication
+        $originalTo = $parser->getOriginalTo();
+        if ($originalTo !== null && $originalTo !== '') {
+            $originalTo = strtolower(trim($originalTo));
+        }
+        
         // Store CC addresses as comma-separated string, or null if empty
         $ccString = null;
         if (!empty($originalCc) && is_array($originalCc) && count($originalCc) > 0) {
@@ -640,7 +646,7 @@ class MailboxMonitor {
         
         $params = [
             $this->mailbox['id'],
-            $parser->getOriginalTo(),
+            $originalTo,
             $ccString,
             $parser->getOriginalSubject(),
             $parser->getOriginalSentDate(),

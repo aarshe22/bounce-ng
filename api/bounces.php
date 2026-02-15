@@ -41,10 +41,10 @@ try {
     $where = '1=1';
     if ($search !== '') {
         $where .= " AND (
-            b.original_to LIKE ? OR
-            b.recipient_domain LIKE ? OR
+            LOWER(b.original_to) LIKE LOWER(?) OR
+            LOWER(b.recipient_domain) LIKE LOWER(?) OR
             b.smtp_code LIKE ? OR
-            b.smtp_reason LIKE ?
+            LOWER(b.smtp_reason) LIKE LOWER(?)
         )";
         $term = '%' . $search . '%';
         $params = array_merge($params, [$term, $term, $term, $term]);
