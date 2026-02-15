@@ -81,9 +81,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // No auto-refresh for event log - user can manually refresh or it auto-refreshes during processing
-    // Poll dashboard every 10 seconds
-    setInterval(loadDashboard, 10000);
-    setInterval(loadNotificationQueue, 5000);
+    // Dashboard and notification queue do not auto-refresh; use RUN CRON or switch views to refresh
+    // (removed setInterval for dashboard/notification queue so accordions and state are preserved)
     
     // Set up BCC monitoring toggle event listener
     const bccMonitoringToggle = document.getElementById('bccMonitoringToggle');
