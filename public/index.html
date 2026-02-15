@@ -159,11 +159,13 @@
                                     </div>
                                     <small class="text-muted">Turn on to skip SSL certificate verification (use for self-signed or internal CAs only)</small>
                                 </div>
-                                <div class="mb-3 d-flex gap-2 flex-wrap">
+                                <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
                                     <button type="button" class="btn btn-sm btn-primary" onclick="saveMssqlSettings()">Save MSSQL Settings</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" id="mssqlTestBtn" onclick="testMssqlConnection()">Test Connection</button>
                                     <button type="button" class="btn btn-sm btn-success" id="mssqlSyncBtn" onclick="syncMssqlNow()">Sync Now</button>
+                                    <span class="small text-muted ms-2" id="mssqlLastSynced">Last synced: —</span>
                                 </div>
+                                <small class="text-muted d-block">Auto-sync: addresses with bounce count ≥ 2 are synced when cron runs. Manually unsynced addresses stay unsynced until you press SYNC on the Bad Addresses tab.</small>
 
                                 <hr>
                                 <div class="mb-3">

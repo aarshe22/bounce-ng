@@ -165,14 +165,20 @@ Configure your web server (Apache/Nginx) to point to the repository root.
 
 ## Step 8b: (Optional) Sync Bad Addresses to Remote MSSQL
 
-If you want to push confirmed hard-bounce bad addresses to a central MSSQL database:
+If you want to sync bad addresses to a central MSSQL **BadAddresses** table:
 
-1. **Create the table** on your MSSQL server: run the script `schema/mssql-bad-addresses.sql` in your database (creates table with columns: `email`, `last_updated`, `reason`). You can change the table name in the script.
+**Auto-sync (bounce count ≥ 2)**  
+- Addresses with **bounce count ≥ 2** are auto-synced to MSSQL **every time the cron runs** (and when you click **Sync Now**). **Last synced** is shown beside the Sync Now button.
+
+**Manually unsynced**  
+- On the **Bad Addresses** tab, each address has **SYNC** (green) or **UNSYNC** (red). **UNSYNC** removes the address from the remote table and excludes it from auto-sync until you press **SYNC** again. **SYNC** adds it and re-enables auto-sync (if bounce count ≥ 2).
+
+1. **Create the table** on your MSSQL server: run `schema/mssql-bad-addresses.sql` in your database (creates table with columns: `email`, `last_updated`, `reason`). You can change the table name in the script.
 2. In **Control Panel**, scroll to **"Remote MSSQL Sync"**.
 3. Enter **MSSQL Server** (IP or hostname), **Port** (default 1433), **Database Name**, **Table Name** (e.g. `BadAddresses`), **Username**, and **Password**.
 4. If your server uses a **self-signed certificate**, turn on **"Trust server certificate (e.g. self-signed)"** to avoid SSL certificate errors.
 5. Click **Save MSSQL Settings**, then **Test Connection** to verify.
-6. Click **Sync Now** to push current hard-bounce addresses to the remote table. Existing rows are updated by email (no duplicates).
+6. Click **Sync Now** to re-evaluate and push eligible addresses (bounce count ≥ 2, excluding manually unsynced) to the remote table. **Last synced** updates after each sync.
 
 ## Step 9: Process Your First Bounces
 
@@ -214,9 +220,14 @@ Or use the **"RUN CRON"** button in the header for manual execution.
 
 ### Bad Addresses
 
-- Click **"Bad Addresses"** in header
-- View all bounced email addresses
+- Click **"Bad Addresses"** in header (sorted by bounce count, highest first)
+- **SYNC** (green) / **UNSYNC** (red) per address: add or remove from the remote BadAddresses table; unsynced addresses stay excluded from auto-sync until you press SYNC again
 - Export to CSV for external analysis
+
+### Bounce Log
+
+- Click **"Bounce Log"** in header
+- Monolithic table of all bounces: sort by date, email, domain, SMTP code, or status; search by email, domain, code, or reason
 
 ### Event Log
 
@@ -232,7 +243,7 @@ Or use the **"RUN CRON"** button in the header for manual execution.
 - **Configure Cron**: Set up automated processing
 - **User Management**: Add additional users (admin-only)
 - **Backup Configuration**: Export settings for backup (admin-only)
-- **Remote MSSQL Sync**: Configure and use **Sync Now** in Control Panel to push hard-bounce bad addresses to a remote MSSQL table (optional; requires PDO SQL Server driver)
+- **Remote MSSQL Sync**: Configure in Control Panel; addresses with bounce count ≥ 2 auto-sync when cron runs; use **Sync Now** or per-address **SYNC**/ **UNSYNC** on Bad Addresses tab (optional; requires PDO SQL Server driver)
 
 ## Troubleshooting
 

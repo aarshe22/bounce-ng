@@ -493,6 +493,7 @@ async function loadSettings() {
                     if (mssqlPassword) mssqlPassword.value = m.mssql_password || ''; // masked as ******** when stored
                     const mssqlTrustCert = document.getElementById('mssqlTrustCertificate');
                     if (mssqlTrustCert) mssqlTrustCert.checked = m.mssql_trust_certificate === '1';
+                    updateMssqlLastSyncedDisplay(m.mssql_last_synced_at);
                 }
             } catch (e) {
                 console.warn('Could not load MSSQL config:', e);
@@ -559,6 +560,25 @@ async function testMssqlConnection() {
     }
 }
 
+function updateMssqlLastSyncedDisplay(isoOrEmpty) {
+    const el = document.getElementById('mssqlLastSynced');
+    if (!el) return;
+    if (!isoOrEmpty || isoOrEmpty.trim() === '') {
+        el.textContent = 'Last synced: —';
+        return;
+    }
+    try {
+        const d = new Date(isoOrEmpty);
+        if (isNaN(d.getTime())) {
+            el.textContent = 'Last synced: —';
+            return;
+        }
+        el.textContent = 'Last synced: ' + d.toLocaleString();
+    } catch (e) {
+        el.textContent = 'Last synced: —';
+    }
+}
+
 async function syncMssqlNow() {
     const btn = document.getElementById('mssqlSyncBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
@@ -569,6 +589,11 @@ async function syncMssqlNow() {
             const d = data.data || {};
             addEventLogMessage('success', 'MSSQL sync: ' + (d.success ?? 0) + ' address(es) synced');
             alert((d.success ?? 0) + ' address(es) synced.' + (d.errors?.length ? ' ' + d.errors.length + ' error(s).' : ''));
+            const configRes = await fetch('/api/mssql-sync.php?action=config');
+            const configData = await configRes.json();
+            if (configData.success && configData.data) {
+                updateMssqlLastSyncedDisplay(configData.data.mssql_last_synced_at);
+            }
         } else {
             throw new Error(data.error || 'Sync failed');
         }
@@ -2803,6 +2828,22 @@ function showHelp() {
             
             <hr>
             
+            <h5><i class="bi bi-exclamation-triangle"></i> Bad Addresses</h5>
+            <p>View all bounced email addresses sorted by bounce count (highest first).</p>
+            <ul>
+                <li><strong>SYNC</strong> (green button): Address is not in the remote BadAddresses table; click to add it. Removes the address from the manually-unsynced list so it can be auto-synced when bounce count ≥ 2.</li>
+                <li><strong>UNSYNC</strong> (red button): Address is in the remote table; click to remove it and add to the bypass list. It will not be auto-synced again until you press SYNC for that address.</li>
+                <li><strong>Export CSV</strong>: Download bad addresses data for external analysis.</li>
+            </ul>
+            
+            <h5><i class="bi bi-journal-text"></i> Bounce Log</h5>
+            <p>Monolithic table of all bounces (one row per bounce).</p>
+            <ul>
+                <li><strong>Sort</strong>: By date, email, domain, SMTP code, or status (dropdown or click column header).</li>
+                <li><strong>Search</strong>: Filter by email, domain, SMTP code, or reason (debounced).</li>
+                <li>Use the <strong>Bad Addresses</strong> tab for per-address SYNC/UNSYNC to the remote MSSQL BadAddresses table.</li>
+            </ul>
+            
             <h5><i class="bi bi-list-ul"></i> Event Log</h5>
             <p>Comprehensive log of all system events and activities.</p>
             
@@ -2835,6 +2876,14 @@ function showHelp() {
                 <li><strong>Override Email</strong>: Email address to receive test notifications</li>
                 <li><strong>Real-time Notifications</strong>: When enabled, notifications are sent immediately after processing. When disabled, notifications are queued for manual sending</li>
                 <li><strong>BCC Monitoring</strong>: When enabled, all outbound notifications (in production mode) will be BCC'd to the specified email addresses. This allows monitoring of notification delivery without affecting the original recipients. Supports multiple comma-separated email addresses.</li>
+                <li><strong>Send Test Email</strong>: Enter an email address and click <strong>Send Test Email</strong> to send a test message using the same SMTP profile as notifications (first active relay). Useful to verify SMTP configuration.</li>
+            </ul>
+            
+            <h6>Remote MSSQL Sync (Bad Addresses)</h6>
+            <p>Sync bad addresses to a remote MSSQL BadAddresses table. Configure server, port, database, table name, username, password, and optionally <strong>Trust server certificate</strong> for self-signed certs.</p>
+            <ul>
+                <li><strong>Auto-sync (bounce count ≥ 2)</strong>: Any address with bounce count ≥ 2 is included in the auto-sync list. The list is re-evaluated and synced to MSSQL every time the cron task runs (and when you click <strong>Sync Now</strong>). <strong>Last synced</strong> date/time is shown beside the Sync Now button.</li>
+                <li><strong>Manually unsynced</strong>: On the <strong>Bad Addresses</strong> tab, each address has a <strong>SYNC</strong> (green) or <strong>UNSYNC</strong> (red) button. <strong>UNSYNC</strong> removes the address from the remote table and adds it to a bypass list so it is never auto-synced until you press <strong>SYNC</strong> again. <strong>SYNC</strong> adds the address and removes it from the bypass list so it is included in future auto-syncs (if bounce count ≥ 2).</li>
             </ul>
             
             <h6>Mailbox Management</h6>
@@ -2898,8 +2947,14 @@ function showHelp() {
             <h6>Control Panel</h6>
             <p>Switch to the Control Panel for administrative tasks and configuration.</p>
             
+            <h6>Bad Addresses</h6>
+            <p>View all bounced email addresses sorted by bounce count (highest first). Each address has a <strong>SYNC</strong> (green) or <strong>UNSYNC</strong> (red) button to add or remove it from the remote BadAddresses table. Manually unsynced addresses stay excluded from auto-sync until you press SYNC again.</p>
+            
+            <h6>Bounce Log</h6>
+            <p>Monolithic table of all bounces. Sort by date, email, domain, SMTP code, or status; search by email, domain, code, or reason. Use the Bad Addresses tab for per-address SYNC/UNSYNC to the remote MSSQL table.</p>
+            
             <h6>RUN CRON</h6>
-            <p>Manually execute the cron script to process mailboxes and send notifications (admin only). This is equivalent to running <code>notify-cron.php</code> from the command line.</p>
+            <p>Manually execute the cron script (admin only). This runs mailbox processing, notification sending, optional deduplication, and <strong>MSSQL BadAddresses sync</strong> (if configured). Equivalent to running <code>notify-cron.php</code> from the command line.</p>
             
             <h6>Help</h6>
             <p>Open this help documentation.</p>
@@ -2998,7 +3053,10 @@ function showHelp() {
             <p>Permanent failures (550-559) indicate the email address doesn't exist or is blocked. Temporary failures (450-459) indicate temporary issues like mailbox full or server problems.</p>
             
             <h6>How often should I run processing?</h6>
-            <p>Set up a cron job to run <code>notify-cron.php</code> every 5-15 minutes for automated processing. You can also use the "RUN CRON" button for manual execution.</p>
+            <p>Set up a cron job to run <code>notify-cron.php</code> every 5-15 minutes for automated processing. You can also use the "RUN CRON" button for manual execution. Each cron run also re-evaluates and syncs the MSSQL BadAddresses table (addresses with bounce count ≥ 2, excluding manually unsynced).</p>
+            
+            <h6>How does BadAddresses auto-sync work?</h6>
+            <p>Any address with bounce count ≥ 2 is included in the auto-sync list. When cron runs (or you click Sync Now), that list is synced to the remote MSSQL BadAddresses table. If you press <strong>UNSYNC</strong> on an address in the Bad Addresses tab, that address is removed from the remote table and added to a bypass list so it is never auto-synced again until you press <strong>SYNC</strong> for that address.</p>
             
             <hr>
             

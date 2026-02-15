@@ -29,6 +29,7 @@ require_once __DIR__ . '/config.php';
 
 use BounceNG\Database;
 use BounceNG\MailboxMonitor;
+use BounceNG\MssqlSync;
 use BounceNG\NotificationSender;
 use BounceNG\EventLogger;
 
@@ -530,6 +531,23 @@ try {
             ]);
             $exitCode = 4; // Deduplication error
         }
+    }
+    
+    // Step 4: MSSQL BadAddresses sync (bounce_count >= 2, excluding manually unsynced)
+    try {
+        $mssqlSync = new MssqlSync();
+        if ($mssqlSync->isConfigured()) {
+            cronLog('info', "Starting MSSQL BadAddresses sync phase...", $eventLogger, $userId);
+            $syncResult = $mssqlSync->syncToMssql();
+            cronLog('info', "MSSQL sync completed: {$syncResult['success']} address(es) synced" . (count($syncResult['errors']) ? ', ' . count($syncResult['errors']) . ' error(s)' : ''), $eventLogger, $userId);
+            if (!empty($syncResult['errors'])) {
+                cronLog('error', "MSSQL sync errors: " . implode('; ', array_slice($syncResult['errors'], 0, 5)), $eventLogger, $userId);
+            }
+            cronLog('info', "MSSQL BadAddresses sync phase completed", $eventLogger, $userId);
+        }
+    } catch (Exception $e) {
+        cronLogError("MSSQL BadAddresses sync failed", $e, $eventLogger, $userId, null, []);
+        // Do not set exitCode; allow cron to complete successfully
     }
     
     // Summary

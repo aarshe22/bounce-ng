@@ -76,6 +76,9 @@ try {
                 }
                 $emails = array_values(array_unique(array_filter(array_map('trim', $emails))));
                 $result = $sync->syncSelectedToMssql($emails);
+                foreach ($emails as $email) {
+                    $sync->removeManuallyUnsynced($email);
+                }
                 echo json_encode([
                     'success' => true,
                     'message' => $result['success'] . ' address(es) synced',
@@ -87,6 +90,7 @@ try {
                     throw new Exception("Email is required");
                 }
                 $sync->removeFromMssql($email);
+                $sync->addManuallyUnsynced($email);
                 echo json_encode(['success' => true, 'message' => 'Address removed from BadAddresses table']);
             } else {
                 http_response_code(400);

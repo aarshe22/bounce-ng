@@ -26,7 +26,7 @@ class MssqlSync {
         if ($this->config !== null) {
             return $this->config;
         }
-        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate'];
+        $keys = ['mssql_server', 'mssql_port', 'mssql_database', 'mssql_table', 'mssql_username', 'mssql_password', 'mssql_trust_certificate', 'mssql_last_synced_at', 'mssql_manually_unsynced'];
         $config = [];
         foreach ($keys as $key) {
             $stmt = $this->db->prepare("SELECT value FROM settings WHERE key = ?");
@@ -119,8 +119,113 @@ class MssqlSync {
     }
 
     /**
+     * Get emails that the user has manually set to "unsync" (excluded from auto-sync until they press SYNC again).
+     *
+     * @return array<string> Lowercase emails
+     */
+    public function getManuallyUnsyncedEmails() {
+        $raw = trim($this->getConfig()['mssql_manually_unsynced'] ?? '');
+        if ($raw === '') {
+            return [];
+        }
+        $arr = json_decode($raw, true);
+        if (!is_array($arr)) {
+            return [];
+        }
+        return array_values(array_unique(array_map(function ($e) {
+            return strtolower(trim((string) $e));
+        }, array_filter($arr, function ($e) {
+            return $e !== '' && $e !== null;
+        }))));
+    }
+
+    public function addManuallyUnsynced($email) {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') {
+            return;
+        }
+        $list = $this->getManuallyUnsyncedEmails();
+        if (in_array($email, $list, true)) {
+            return;
+        }
+        $list[] = $email;
+        $this->setSetting('mssql_manually_unsynced', json_encode(array_values($list)));
+        $this->config = null;
+    }
+
+    public function removeManuallyUnsynced($email) {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') {
+            return;
+        }
+        $list = array_values(array_filter($this->getManuallyUnsyncedEmails(), function ($e) use ($email) {
+            return $e !== $email;
+        }));
+        $this->setSetting('mssql_manually_unsynced', empty($list) ? '' : json_encode($list));
+        $this->config = null;
+    }
+
+    private function setSetting($key, $value) {
+        $stmt = $this->db->prepare("SELECT key FROM settings WHERE key = ?");
+        $stmt->execute([$key]);
+        if ($stmt->fetch()) {
+            $stmt = $this->db->prepare("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?");
+            $stmt->execute([$value, $key]);
+        } else {
+            $stmt = $this->db->prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)");
+            $stmt->execute([$key, $value]);
+        }
+    }
+
+    /**
+     * Get addresses eligible for auto-sync: bounce_count >= 2, excluding manually unsynced.
+     * Used by cron and Sync Now. One row per original_to (latest bounce), with reason.
+     *
+     * @return array<array{email: string, last_updated: string, reason: string}>
+     */
+    public function getAddressesForAutoSync() {
+        $manuallyUnsynced = array_flip($this->getManuallyUnsyncedEmails());
+
+        $stmt = $this->db->query("
+            SELECT b.original_to, b.bounce_date, b.smtp_code, b.smtp_reason, sc.description as smtp_description
+            FROM bounces b
+            LEFT JOIN smtp_codes sc ON b.smtp_code = sc.code
+            WHERE b.original_to IN (
+                SELECT original_to FROM bounces
+                WHERE original_to IS NOT NULL AND TRIM(original_to) != ''
+                GROUP BY original_to
+                HAVING COUNT(*) >= 2
+            )
+            ORDER BY b.bounce_date DESC
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $byEmail = [];
+        foreach ($rows as $r) {
+            $email = trim($r['original_to']);
+            if ($email === '') {
+                continue;
+            }
+            if (isset($byEmail[$email])) {
+                continue;
+            }
+            if (isset($manuallyUnsynced[strtolower($email)])) {
+                continue;
+            }
+            $reason = $this->formatReason($r['smtp_code'], $r['smtp_reason'], $r['smtp_description'] ?? '');
+            $byEmail[$email] = [
+                'email' => $email,
+                'last_updated' => $r['bounce_date'],
+                'reason' => $reason,
+            ];
+        }
+        return array_values($byEmail);
+    }
+
+    /**
      * Get confirmed hard-bounce bad addresses from SQLite: one row per original_to (latest bounce),
      * with reason string. deliverability_status = 'permanent_failure'.
+     * Kept for backward compatibility; auto-sync uses getAddressesForAutoSync().
      *
      * @return array<array{email: string, last_updated: string, reason: string}>
      */
@@ -230,8 +335,8 @@ class MssqlSync {
     }
 
     /**
-     * Sync hard-bounce addresses to MSSQL. Upserts by email (no duplicates; updates if exists).
-     * Table must have columns: email (PK), last_updated, reason.
+     * Sync auto-sync-eligible addresses to MSSQL (bounce_count >= 2, excluding manually unsynced).
+     * Upserts by email. Updates mssql_last_synced_at after sync.
      *
      * @return array{success: int, updated: int, errors: array}
      */
@@ -243,9 +348,11 @@ class MssqlSync {
         }
         $table = $this->quoteIdentifier($table);
 
-        $addresses = $this->getHardBounceAddresses();
+        $addresses = $this->getAddressesForAutoSync();
         if (empty($addresses)) {
-            $this->eventLogger->log('info', 'MSSQL sync: no hard-bounce addresses to sync', null, null, null);
+            $this->eventLogger->log('info', 'MSSQL sync: no addresses to sync (bounce_count >= 2, excluding manually unsynced)', null, null, null);
+            $this->setSetting('mssql_last_synced_at', date('Y-m-d H:i:s'));
+            $this->config = null;
             return ['success' => 0, 'updated' => 0, 'errors' => []];
         }
 
@@ -261,6 +368,9 @@ class MssqlSync {
                 $errors[] = $row['email'] . ': ' . $e->getMessage();
             }
         }
+
+        $this->setSetting('mssql_last_synced_at', date('Y-m-d H:i:s'));
+        $this->config = null;
 
         $this->eventLogger->log(
             'info',
