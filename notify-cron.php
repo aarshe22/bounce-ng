@@ -537,11 +537,15 @@ try {
         if ($mssqlSync->isConfigured()) {
             cronLog('info', "Starting MSSQL BadAddresses sync phase...", $eventLogger, $userId);
             $syncResult = $mssqlSync->syncToMssql();
-            cronLog('info', "MSSQL sync completed: {$syncResult['success']} address(es) synced" . (count($syncResult['errors']) ? ', ' . count($syncResult['errors']) . ' error(s)' : ''), $eventLogger, $userId);
+            $numSynced = (int) ($syncResult['success'] ?? 0);
+            $numErrors = count($syncResult['errors'] ?? []);
+            cronLog('info', "MSSQL BadAddresses sync completed: {$numSynced} record(s) synced to remote table" . ($numErrors ? ", {$numErrors} error(s)" : ""), $eventLogger, $userId);
             if (!empty($syncResult['errors'])) {
                 cronLog('error', "MSSQL sync errors: " . implode('; ', array_slice($syncResult['errors'], 0, 5)), $eventLogger, $userId);
             }
             cronLog('info', "MSSQL BadAddresses sync phase completed", $eventLogger, $userId);
+        } else {
+            cronLog('info', "MSSQL BadAddresses sync skipped (not configured)", $eventLogger, $userId);
         }
     } catch (Exception $e) {
         cronLogError("MSSQL BadAddresses sync failed", $e, $eventLogger, $userId, null, []);
