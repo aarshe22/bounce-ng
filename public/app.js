@@ -110,6 +110,7 @@ function switchView(viewName) {
     if (viewName === 'controls') {
         document.getElementById('viewControls').style.display = 'block';
         document.getElementById('viewControlsBtn').classList.add('active');
+        loadMigrations();
     } else if (viewName === 'dashboard') {
         document.getElementById('viewDashboard').style.display = 'block';
         document.getElementById('viewDashboardBtn').classList.add('active');
@@ -425,7 +426,8 @@ function updateUIForAdminStatus() {
         'button[onclick="saveTestModeSettings()"]',
         'button[onclick="saveNotificationTemplate()"]',
         'button[onclick="backupConfig()"]',
-        'button[onclick="restoreConfig()"]'
+        'button[onclick="restoreConfig()"]',
+        '.migration-apply-btn'
     ];
     
     adminSections.forEach(selector => {
@@ -3501,6 +3503,67 @@ async function runCron() {
                 runCronBtn.innerHTML = originalText;
             }
         }, 3000);
+    }
+}
+
+// Migrations (Control Panel)
+async function loadMigrations() {
+    const container = document.getElementById('migrationsListContainer');
+    if (!container) return;
+    try {
+        const response = await fetch('/api/migrations.php?action=list');
+        if (!response.ok) throw new Error('Failed to load migrations');
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || 'Failed to load migrations');
+        const list = result.data || [];
+        if (list.length === 0) {
+            container.innerHTML = '<p class="text-muted small mb-0">No migrations defined.</p>';
+            return;
+        }
+        let html = '<table class="table table-sm table-bordered"><thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Applied</th><th></th></tr></thead><tbody>';
+        list.forEach(m => {
+            const applied = m.applied_at != null;
+            const statusBadge = applied
+                ? '<span class="badge bg-success">Applied</span>'
+                : '<span class="badge bg-secondary">Pending</span>';
+            const appliedAt = applied ? (new Date(m.applied_at).toLocaleString()) : '—';
+            const applyBtn = applied
+                ? ''
+                : `<button type="button" class="btn btn-sm btn-primary migration-apply-btn" data-id="${escapeHtml(m.id)}" onclick="applyMigration('${String(m.id).replace(/'/g, "\\'")}')">Apply</button>`;
+            html += `<tr>
+                <td>${escapeHtml(m.name)}</td>
+                <td class="small text-muted">${escapeHtml(m.description)}</td>
+                <td>${statusBadge}</td>
+                <td class="small">${appliedAt}</td>
+                <td>${applyBtn}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        updateAdminOnlyElements();
+    } catch (err) {
+        console.error('Migrations load error:', err);
+        container.innerHTML = `<p class="text-danger small mb-0">Error loading migrations: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+async function applyMigration(id) {
+    if (!userIsAdmin) {
+        alert('Only administrators can apply migrations.');
+        return;
+    }
+    try {
+        const response = await fetch('/api/migrations.php?action=apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Apply failed');
+        alert('Migration applied successfully.');
+        loadMigrations();
+    } catch (err) {
+        alert('Error applying migration: ' + err.message);
     }
 }
 

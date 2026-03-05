@@ -171,6 +171,11 @@ class Database {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS migrations (
+            id TEXT PRIMARY KEY,
+            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE INDEX IF NOT EXISTS idx_bounces_mailbox ON bounces(mailbox_id);
         CREATE INDEX IF NOT EXISTS idx_bounces_domain ON bounces(recipient_domain);
         CREATE INDEX IF NOT EXISTS idx_bounces_date ON bounces(bounce_date);
