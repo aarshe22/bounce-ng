@@ -2040,7 +2040,7 @@ function displayDashboard(data) {
                                     </div>
                                     <small class="text-muted">${bounceDate.toLocaleDateString()} ${bounceDate.toLocaleTimeString()}</small>
                                 </div>
-                                ${bounce.smtp_reason ? `<div class="text-muted mt-1"><small>${bounce.smtp_reason}</small></div>` : ''}
+                                ${bounce.smtp_reason ? `<div class="text-muted mt-1"><small>${escapeHtml(bounce.smtp_reason)}</small></div>` : ''}
                                 ${bounce.smtp_description ? `<div class="text-muted"><small><i>${bounce.smtp_description}</i></small></div>` : ''}
                             </div>
                         `;
@@ -3114,13 +3114,13 @@ function renderBounceLogTable(rows, total) {
         const date = row.bounce_date ? new Date(row.bounce_date).toLocaleString() : '';
         const status = row.deliverability_status || '';
         const statusClass = status === 'permanent_failure' ? 'danger' : status === 'temporary_failure' ? 'warning' : 'secondary';
-        const reason = (row.smtp_reason || '').substring(0, 120) + ((row.smtp_reason || '').length > 120 ? '…' : '');
+        const reason = row.smtp_reason || '';
         return `<tr>
             <td>${date}</td>
             <td>${escapeHtml(row.original_to || '')}</td>
             <td>${escapeHtml(row.recipient_domain || '')}</td>
             <td><span class="badge bg-${statusClass}">${escapeHtml(row.smtp_code || '')}</span></td>
-            <td class="small text-muted" title="${escapeHtml(row.smtp_reason || '')}">${escapeHtml(reason)}</td>
+            <td class="small text-muted text-break" style="max-width: 420px; white-space: normal;">${escapeHtml(reason)}</td>
             <td><span class="badge bg-${statusClass}">${escapeHtml(status)}</span></td>
         </tr>`;
     }).join('');

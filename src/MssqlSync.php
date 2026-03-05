@@ -454,6 +454,10 @@ class MssqlSync {
         $email = $row['email'];
         $last_updated = $row['last_updated'];
         $reason = $row['reason'] ?? '';
+        // MSSQL reason column is typically NVARCHAR(2000); avoid overflow
+        if (mb_strlen($reason) > 2000) {
+            $reason = mb_substr($reason, 0, 1997) . '...';
+        }
 
         // MSSQL MERGE: upsert by email
         $sql = "

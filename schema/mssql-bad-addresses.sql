@@ -5,7 +5,7 @@
 -- Column meanings:
 --   email        : Bad email address (original_to from hard bounces). Primary key; no duplicates.
 --   last_updated : When this record was last updated (UTC recommended).
---   reason       : Human-readable reason (e.g. SMTP code and description).
+--   reason       : Human-readable reason (e.g. SMTP code and description). Use 2000+ for long diagnostic messages.
 --
 -- If the table already exists with different column names, either rename columns
 -- to match (email, last_updated, reason) or adjust the application to match your schema.
@@ -18,7 +18,7 @@ BEGIN
     CREATE TABLE dbo.BadAddresses (
         email        NVARCHAR(255)  NOT NULL,
         last_updated DATETIME2      NOT NULL,
-        reason       NVARCHAR(1000)  NULL,
+        reason       NVARCHAR(2000)  NULL,
         CONSTRAINT PK_BadAddresses PRIMARY KEY CLUSTERED (email)
     );
 
@@ -26,3 +26,7 @@ BEGIN
     CREATE NONCLUSTERED INDEX IX_BadAddresses_last_updated ON dbo.BadAddresses (last_updated DESC);
 END
 GO
+
+-- If the table already exists with reason NVARCHAR(1000), increase length to store full diagnostic messages:
+-- ALTER TABLE dbo.BadAddresses ALTER COLUMN reason NVARCHAR(2000) NULL;
+-- GO

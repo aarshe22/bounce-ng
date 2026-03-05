@@ -925,8 +925,9 @@ class EmailParser {
     private function extractSmtpCodes() {
         $allText = implode("\r\n\r\n", $this->allDecodedParts);
         
+        // Patterns that may set both smtp_code and smtp_reason (single-line reason)
         $patterns = [
-            '/(\d{3})\s+([^\r\n]+)/',  // Standard SMTP response
+            '/(\d{3})\s+([^\r\n]+)/',  // Standard SMTP response line
             '/Status:\s*(\d{3})/i',
             '/Diagnostic-Code:\s*[^\r\n]*?(\d{3})/i',
         ];
@@ -941,7 +942,18 @@ class EmailParser {
             }
         }
 
-        if (preg_match('/Diagnostic-Code:\s*([^\r\n]+)/i', $allText, $matches)) {
+        // Diagnostic-Code often contains the full reason; capture entire value including
+        // RFC 5322 folded continuation lines (continuation lines start with space or tab)
+        if (preg_match('/Diagnostic-Code:\s*([^\n]*(?:\n[ \t]+[^\n]*)*)/i', $allText, $matches)) {
+            $reason = trim($matches[1]);
+            // Normalize folded lines: replace newline+indent with single space
+            $reason = preg_replace('/\r?\n[ \t]+/', ' ', $reason);
+            $reason = trim(preg_replace('/\s+/', ' ', $reason));
+            if ($reason !== '') {
+                $this->parsedData['smtp_reason'] = $reason;
+            }
+        } elseif (preg_match('/Diagnostic-Code:\s*([^\r\n]+)/i', $allText, $matches)) {
+            // Fallback: single line only
             $this->parsedData['smtp_reason'] = trim($matches[1]);
         }
     }
