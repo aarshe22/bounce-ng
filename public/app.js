@@ -3540,7 +3540,13 @@ async function loadMigrations() {
         });
         html += '</tbody></table>';
         container.innerHTML = html;
-        updateAdminOnlyElements();
+        if (!userIsAdmin) {
+            container.querySelectorAll('.migration-apply-btn').forEach(btn => {
+                btn.disabled = true;
+                btn.setAttribute('title', 'Admin only');
+                btn.style.opacity = '0.6';
+            });
+        }
     } catch (err) {
         console.error('Migrations load error:', err);
         container.innerHTML = `<p class="text-danger small mb-0">Error loading migrations: ${escapeHtml(err.message)}</p>`;
